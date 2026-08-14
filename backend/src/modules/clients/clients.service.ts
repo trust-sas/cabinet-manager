@@ -46,21 +46,24 @@ export class ClientsService {
     return client;
   }
 
-  async findAll(query: QueryClientsDto, cabinetId: number) {
+  async findAll(query: QueryClientsDto, cabinetId: number, userEmail?: string) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 50;
+    const userEmailClean = userEmail ? userEmail.trim().toLowerCase() : '';
 
-    const whereCondition: any = { cabinetId, deletedAt: IsNull() };
+    const qb = this.clientRepository.createQueryBuilder('c')
+      .where('(c.cabinetId = :cabinetId OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\')))', { cabinetId, userEmail: userEmailClean })
+      .andWhere('c.deletedAt IS NULL');
+
     if (query.search) {
-      whereCondition.nomComplet = Like(`%${query.search.trim()}%`);
+      qb.andWhere('c.nomComplet ILIKE :search', { search: `%${query.search.trim()}%` });
     }
 
-    const [data, total] = await this.clientRepository.findAndCount({
-      where: whereCondition,
-      order: { id: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    qb.orderBy('c.id', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [data, total] = await qb.getManyAndCount();
 
     return { page, pageSize, total, data };
   }

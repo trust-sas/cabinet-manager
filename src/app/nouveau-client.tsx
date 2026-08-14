@@ -71,7 +71,7 @@ export default function NouveauClientScreen() {
       if (created?.id) {
         ajouterAccèsClient(Number(created.id));
       }
-      Alert.alert('Succès', 'Client créé avec succès dans la base de données !', [
+      Alert.alert('Succès', 'Client enregistré avec succès.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (e) {

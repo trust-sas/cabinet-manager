@@ -14,6 +14,7 @@
  */
 
 import { AppColors as C } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
 import { useAudiences } from '@/hooks/useAudiences';
 import { useDossiers } from '@/hooks/useDossiers';
 import { extractErrorMessage } from '@/lib/api';
@@ -50,6 +51,7 @@ const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juill
 
 export default function CalendrierScreen() {
   const router = useRouter();
+  const { colors: K, isDark } = useTheme();
 
   // Date actuellement sélectionnée (par défaut aujourd'hui)
   const todayDate = useMemo(() => new Date(), []);
@@ -277,34 +279,34 @@ export default function CalendrierScreen() {
   }, [router]);
 
   return (
-    <View style={s.root}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: C.gray900 }}>
+    <View style={[s.root, { backgroundColor: K.bg }]}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: K.bgSecondary }}>
 
         {/* ── En-tête Principal ── */}
         <View style={s.header}>
           <View>
-            <Text style={s.title}>Calendrier</Text>
+            <Text style={[s.title, { color: K.text }]}>Calendrier</Text>
             <Text style={s.sub}>{weekMonthYearLabel}</Text>
           </View>
           <TouchableOpacity style={s.addHeaderBtn} onPress={() => handleOpenAddModal()} activeOpacity={0.8}>
-            <Plus color={C.gray900} size={18} />
+            <Plus color={isDark ? C.gray900 : '#ffffff'} size={18} />
             <Text style={s.addHeaderBtnText}>Ajouter</Text>
           </TouchableOpacity>
         </View>
 
         {/* ── Barre de Navigation Semaine ── */}
         <View style={s.weekNavRow}>
-          <TouchableOpacity style={s.navArrowBtn} onPress={() => setWeekOffset(w => w - 1)}>
-            <ChevronLeft color={C.amber400} size={20} />
+          <TouchableOpacity style={[s.navArrowBtn, { backgroundColor: K.bgTertiary }]} onPress={() => setWeekOffset(w => w - 1)}>
+            <ChevronLeft color={K.primary} size={20} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={s.todayBtn} onPress={() => { setWeekOffset(0); setSelectedDate(todayDate); }}>
-            <Calendar color={C.amber400} size={14} />
-            <Text style={s.todayBtnText}>Aujourd'hui</Text>
+          <TouchableOpacity style={[s.todayBtn, { backgroundColor: K.bgTertiary, borderColor: K.border }]} onPress={() => { setWeekOffset(0); setSelectedDate(todayDate); }}>
+            <Calendar color={K.primary} size={14} />
+            <Text style={[s.todayBtnText, { color: K.primary }]}>Aujourd'hui</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={s.navArrowBtn} onPress={() => setWeekOffset(w => w + 1)}>
-            <ChevronRight color={C.amber400} size={20} />
+          <TouchableOpacity style={[s.navArrowBtn, { backgroundColor: K.bgTertiary }]} onPress={() => setWeekOffset(w => w + 1)}>
+            <ChevronRight color={K.primary} size={20} />
           </TouchableOpacity>
         </View>
 
@@ -326,21 +328,22 @@ export default function CalendrierScreen() {
                 onPress={() => setSelectedDate(d)}
                 style={[
                   s.dayCard,
+                  { backgroundColor: K.surface, borderColor: K.border },
                   isSelected && s.dayCardSelected,
-                  isToday && !isSelected && s.dayCardToday,
+                  isToday && !isSelected && { borderColor: K.primary },
                 ]}
                 activeOpacity={0.85}
               >
-                <Text style={[s.dayName, isSelected ? s.dayNameSelected : isToday ? s.dayNameToday : null]}>
+                <Text style={[s.dayName, { color: K.textMuted }, isSelected ? s.dayNameSelected : isToday ? { color: K.primary, fontWeight: '700' } : null]}>
                   {DAYS_FR[d.getDay()]}
                 </Text>
-                <Text style={[s.dayNum, isSelected ? s.dayNumSelected : isToday ? s.dayNumToday : null]}>
+                <Text style={[s.dayNum, { color: K.text }, isSelected ? s.dayNumSelected : isToday ? { color: K.primary } : null]}>
                   {d.getDate()}
                 </Text>
 
                 {/* Indice d'événements */}
                 {eventCount > 0 && (
-                  <View style={[s.dotBadge, isSelected && s.dotBadgeSelected]}>
+                  <View style={[s.dotBadge, { backgroundColor: K.bgTertiary }, isSelected && s.dotBadgeSelected]}>
                     <Text style={[s.dotBadgeText, isSelected && s.dotBadgeTextSelected]}>
                       {eventCount}
                     </Text>
@@ -353,11 +356,11 @@ export default function CalendrierScreen() {
       </SafeAreaView>
 
       {/* ── Section Événements du Jour Sélectionné ── */}
-      <View style={s.selectedDayHeader}>
-        <Text style={s.selectedDayTitle}>
+      <View style={[s.selectedDayHeader, { backgroundColor: K.surface, borderBottomColor: K.border }]}>
+        <Text style={[s.selectedDayTitle, { color: K.text }]}>
           {DAYS_FR[selectedDate.getDay()]} {selectedDate.getDate()} {MONTHS_FR[selectedDate.getMonth()]}
         </Text>
-        <Text style={s.selectedDayCount}>
+        <Text style={[s.selectedDayCount, { color: K.textMuted }]}>
           {eventsOnSelectedDate.length} événement(s)
         </Text>
       </View>
@@ -384,14 +387,14 @@ export default function CalendrierScreen() {
         }
         ListEmptyComponent={
           isLoading
-            ? <View style={s.center}><ActivityIndicator color={C.amber500} size="large" /></View>
+            ? <View style={s.center}><ActivityIndicator color={K.primary} size="large" /></View>
             : (
               <View style={s.center}>
-                <Calendar color={C.gray300} size={48} />
-                <Text style={s.emptyTitle}>Aucun événement ce jour</Text>
-                <Text style={s.emptySub}>Planifiez une audience, un rendez-vous ou une réunion.</Text>
+                <Calendar color={K.textMuted} size={48} />
+                <Text style={[s.emptyTitle, { color: K.text }]}>Aucun événement ce jour</Text>
+                <Text style={[s.emptySub, { color: K.textMuted }]}>Planifiez une audience, un rendez-vous ou une réunion.</Text>
                 <TouchableOpacity style={s.addEmptyBtn} onPress={() => handleOpenAddModal(selectedDate)}>
-                  <Plus color={C.gray900} size={16} />
+                  <Plus color={isDark ? C.gray900 : '#ffffff'} size={16} />
                   <Text style={s.addEmptyBtnText}>Ajouter un événement</Text>
                 </TouchableOpacity>
               </View>
@@ -402,20 +405,20 @@ export default function CalendrierScreen() {
 
       {/* FAB (Bouton Flottant) */}
       <TouchableOpacity style={s.fab} onPress={() => handleOpenAddModal(selectedDate)} activeOpacity={0.85}>
-        <Plus color={C.gray900} size={28} />
+        <Plus color={isDark ? C.gray900 : '#ffffff'} size={28} />
       </TouchableOpacity>
 
       {/* ── MODAL CRÉATION ÉVÉNEMENT / AUDIENCE ── */}
       <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowAddModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.sheetHandle} />
-            <Text style={s.sheetTitle}>Ajouter au calendrier</Text>
+          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.sheetHandle, { backgroundColor: K.border }]} />
+            <Text style={[s.sheetTitle, { color: K.text }]}>Ajouter au calendrier</Text>
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
               {/* Sélection Catégorie */}
-              <Text style={s.fieldLabel}>Type d'événement *</Text>
+              <Text style={[s.fieldLabel, { color: K.text }]}>Type d'événement *</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8 }}>
                 {CATEGORIES.map(cat => (
                   <TouchableOpacity
@@ -423,13 +426,14 @@ export default function CalendrierScreen() {
                     onPress={() => setEvtCategory(cat.id)}
                     style={[
                       s.catChip,
+                      { backgroundColor: K.bgTertiary, borderColor: K.border },
                       evtCategory === cat.id && s.catChipActive,
                       evtCategory === cat.id && cat.id === 'Audience' && s.catChipYellow,
                     ]}
                     activeOpacity={0.8}
                   >
                     <Text style={s.catChipIcon}>{cat.icon}</Text>
-                    <Text style={[s.catChipText, evtCategory === cat.id && s.catChipTextActive]}>
+                    <Text style={[s.catChipText, { color: K.textSecondary }, evtCategory === cat.id && s.catChipTextActive]}>
                       {cat.label}
                     </Text>
                   </TouchableOpacity>
@@ -438,25 +442,25 @@ export default function CalendrierScreen() {
 
               {/* Pop-up Sélecteur de Date & Heure */}
               <View style={{ marginBottom: 14 }}>
-                <Text style={s.fieldLabel}>Date & Heure de l'événement *</Text>
+                <Text style={[s.fieldLabel, { color: K.text }]}>Date & Heure de l'événement *</Text>
                 <TouchableOpacity
                   style={{
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                    backgroundColor: C.amber50, borderWidth: 1.5, borderColor: C.amber400,
+                    backgroundColor: K.primaryLight, borderWidth: 1.5, borderColor: K.primary,
                     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
                   }}
                   onPress={() => setShowPicker(true)}
                   activeOpacity={0.8}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Calendar color={C.amber600} size={18} />
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                    <Calendar color={K.primary} size={18} />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: K.text }}>
                       {evtDateStr || 'Choisir une date'}
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.white, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: C.amber200 }}>
-                    <Clock color={C.amber600} size={14} />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber900 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: K.surface, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: K.border }}>
+                    <Clock color={K.primary} size={14} />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: K.primary }}>
                       {evtHeure || '09:00'}
                     </Text>
                   </View>
@@ -465,28 +469,28 @@ export default function CalendrierScreen() {
 
               {/* Titre / Objet */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Intitulé / Sujet de l'événement</Text>
+                <Text style={[s.fieldLabel, { color: K.text }]}>Intitulé / Sujet de l'événement</Text>
                 <TextInput
-                  style={s.fieldInput}
+                  style={[s.fieldInput, { borderColor: K.border, color: K.text, backgroundColor: K.inputBg }]}
                   value={evtTitre}
                   onChangeText={setEvtTitre}
                   placeholder="ex: Plaidoirie, Entretien client, Signature..."
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
               {/* Sélection Dossier */}
               {userDossiers.length > 0 && (
                 <View style={{ marginBottom: 12 }}>
-                  <Text style={s.fieldLabel}>Lier à un dossier (Affaire)</Text>
+                  <Text style={[s.fieldLabel, { color: K.text }]}>Lier à un dossier (Affaire)</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                     {userDossiers.map(d => (
                       <TouchableOpacity
                         key={d.id}
                         onPress={() => setEvtDossierId(d.id)}
-                        style={[s.dossierChip, evtDossierId === d.id && s.dossierChipActive]}
+                        style={[s.dossierChip, { backgroundColor: K.bgTertiary, borderColor: K.border }, evtDossierId === d.id && s.dossierChipActive]}
                       >
-                        <Text style={[s.dossierChipText, evtDossierId === d.id && s.dossierChipTextActive]}>
+                        <Text style={[s.dossierChipText, { color: K.textSecondary }, evtDossierId === d.id && s.dossierChipTextActive]}>
                           {d.numeroAffaire} — {d.titre}
                         </Text>
                       </TouchableOpacity>
@@ -497,27 +501,27 @@ export default function CalendrierScreen() {
 
               {/* Lieu / Juridiction */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Lieu / Juridiction / Salle</Text>
+                <Text style={[s.fieldLabel, { color: K.text }]}>Lieu / Juridiction / Salle</Text>
                 <TextInput
-                  style={s.fieldInput}
+                  style={[s.fieldInput, { borderColor: K.border, color: K.text, backgroundColor: K.inputBg }]}
                   value={evtLieu}
                   onChangeText={setEvtLieu}
                   placeholder="ex: TGI de Yaoundé - Salle 2, Bureau Avocat..."
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
               {/* Notes */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Notes & Observations</Text>
+                <Text style={[s.fieldLabel, { color: K.text }]}>Notes & Observations</Text>
                 <TextInput
-                  style={[s.fieldInput, { height: 75, textAlignVertical: 'top' }]}
+                  style={[s.fieldInput, { borderColor: K.border, color: K.text, backgroundColor: K.inputBg }, { height: 75, textAlignVertical: 'top' }]}
                   value={evtNotes}
                   onChangeText={setEvtNotes}
                   multiline
                   numberOfLines={3}
                   placeholder="Précisions supplémentaires..."
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
@@ -537,10 +541,10 @@ export default function CalendrierScreen() {
 
               {/* Bouton de Sauvegarde */}
               <TouchableOpacity style={[s.saveBtn, savingEvt && { opacity: 0.6 }]} onPress={handleSaveEvent} disabled={savingEvt} activeOpacity={0.85}>
-                {savingEvt ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Enregistrer l'événement</Text>}
+                {savingEvt ? <ActivityIndicator color={isDark ? C.gray900 : '#ffffff'} /> : <Text style={s.saveBtnText}>Enregistrer l'événement</Text>}
               </TouchableOpacity>
-              <TouchableOpacity style={s.cancelBtn} onPress={() => setShowAddModal(false)} activeOpacity={0.8}>
-                <Text style={s.cancelBtnText}>Annuler</Text>
+              <TouchableOpacity style={[s.cancelBtn, { borderColor: K.border }]} onPress={() => setShowAddModal(false)} activeOpacity={0.8}>
+                <Text style={[s.cancelBtnText, { color: K.textMuted }]}>Annuler</Text>
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
@@ -630,7 +634,7 @@ const s = StyleSheet.create({
   addEmptyBtnText: { fontSize: 13, fontWeight: '600', color: C.gray900 },
   card: {
     backgroundColor: C.white, borderRadius: 16, padding: 14,
-    shadowColor: C.black, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 3, elevation: 2,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 3, elevation: 2,
     borderLeftWidth: 4, borderLeftColor: C.blue500,
   },
   cardYellow: {

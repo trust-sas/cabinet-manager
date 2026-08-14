@@ -10,6 +10,7 @@
  */
 
 import { AppColors as C } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useDossiers } from '@/hooks/useDossiers';
 import { useAudiences } from '@/hooks/useAudiences';
@@ -91,7 +92,8 @@ const IA_SUGGESTIONS = [
 ];
 
 export default function DocumentsScreen() {
-  // ── Onglet actif principal : GED vs IA ─────────────────────────────────────
+  const { colors: K, isDark } = useTheme();
+  // ── Onglet actif principal : GED vs IA ───────────────────────────────────────
   const [mainTab, setMainTab] = useState<'ged' | 'ia'>('ged');
 
   // ── States GED ─────────────────────────────────────────────────────────────
@@ -349,35 +351,35 @@ export default function DocumentsScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <StatusBar barStyle="light-content" backgroundColor={C.gray900} />
-      <SafeAreaView edges={['top']} style={{ backgroundColor: C.gray900 }}>
-        {/* Header Executive Fusionné */}
-        <View style={s.headerBar}>
+    <KeyboardAvoidingView style={[s.root, { backgroundColor: K.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={K.bgSecondary} />
+      <SafeAreaView edges={['top']} style={{ backgroundColor: K.bgSecondary }}>
+        {/* Header Executive Fusionne */}
+        <View style={[s.headerBar, { backgroundColor: K.bgSecondary }]}>
           <View style={{ flex: 1 }}>
-            <Text style={s.headerTitleMain}>Documents & IA</Text>
+            <Text style={[s.headerTitleMain, { color: K.text }]}>Documents & IA</Text>
             <Text style={s.headerSubMain}>Gestion documentaire et intelligence juridique</Text>
           </View>
         </View>
 
         {/* Sous-Onglets Navigation : Documents vs IA */}
-        <View style={s.tabNavRow}>
+        <View style={[s.tabNavRow, { backgroundColor: K.bgSecondary }]}>
           <TouchableOpacity
-            style={[s.tabNavBtn, mainTab === 'ged' && s.tabNavBtnActive]}
+            style={[s.tabNavBtn, { backgroundColor: K.bgTertiary }, mainTab === 'ged' && s.tabNavBtnActive]}
             onPress={() => setMainTab('ged')}
             activeOpacity={0.8}
           >
-            <FolderOpen color={mainTab === 'ged' ? C.gray900 : C.gray400} size={16} />
-            <Text style={[s.tabNavText, mainTab === 'ged' && s.tabNavTextActive]}>Documents</Text>
+            <FolderOpen color={mainTab === 'ged' ? (isDark ? C.gray900 : '#ffffff') : K.textMuted} size={16} />
+            <Text style={[s.tabNavText, { color: K.textMuted }, mainTab === 'ged' && s.tabNavTextActive]}>Documents</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[s.tabNavBtn, mainTab === 'ia' && s.tabNavBtnActive]}
+            style={[s.tabNavBtn, { backgroundColor: K.bgTertiary }, mainTab === 'ia' && s.tabNavBtnActive]}
             onPress={() => setMainTab('ia')}
             activeOpacity={0.8}
           >
-            <Brain color={mainTab === 'ia' ? C.amber500 : C.gray400} size={16} />
-            <Text style={[s.tabNavText, mainTab === 'ia' && s.tabNavTextActive]}>Assistant IA</Text>
+            <Brain color={mainTab === 'ia' ? C.amber500 : K.textMuted} size={16} />
+            <Text style={[s.tabNavText, { color: K.textMuted }, mainTab === 'ia' && s.tabNavTextActive]}>Assistant IA</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -386,39 +388,39 @@ export default function DocumentsScreen() {
       {mainTab === 'ged' && (
         <View style={{ flex: 1 }}>
           {/* Recherche & Téléversement */}
-          <View style={s.searchBarRow}>
-            <View style={s.searchBox}>
-              <Search color={C.gray400} size={16} />
+          <View style={[s.searchBarRow, { backgroundColor: K.surface, borderBottomColor: K.border }]}>
+            <View style={[s.searchBox, { backgroundColor: K.bg }]}>
+              <Search color={K.textMuted} size={16} />
               <TextInput
-                style={s.searchInput}
+                style={[s.searchInput, { color: K.text }]}
                 placeholder="Rechercher un document…"
-                placeholderTextColor={C.gray400}
+                placeholderTextColor={K.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <X color={C.gray400} size={16} />
+                  <X color={K.textMuted} size={16} />
                 </TouchableOpacity>
               )}
             </View>
             <TouchableOpacity style={s.uploadBtn} onPress={() => setShowUploadModal(true)} disabled={uploading} activeOpacity={0.8}>
-              {uploading ? <ActivityIndicator size={16} color={C.gray900} /> : <Upload color={C.gray900} size={16} />}
-              <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray900, marginLeft: 4 }}>+ Importer</Text>
+              {uploading ? <ActivityIndicator size={16} color={isDark ? C.gray900 : '#ffffff'} /> : <Upload color={isDark ? C.gray900 : '#ffffff'} size={16} />}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? C.gray900 : '#ffffff', marginLeft: 4 }}>+ Importer</Text>
             </TouchableOpacity>
           </View>
 
           {/* Filtres Confidentialité */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerStyle={s.filtresRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerStyle={[s.filtresRow, { backgroundColor: K.surface }]}>
             {FILTRES_GED.map(f => {
               const active = activeFilter === f.id;
               return (
                 <TouchableOpacity
                   key={f.id}
-                  style={[s.filterChip, active && s.filterChipActive]}
+                  style={[s.filterChip, { backgroundColor: K.bgTertiary }, active && s.filterChipActive]}
                   onPress={() => setActiveFilter(f.id)}
                 >
-                  <Text style={[s.filterChipText, active && s.filterChipTextActive]}>{f.label}</Text>
+                  <Text style={[s.filterChipText, { color: K.textSecondary }, active && s.filterChipTextActive]}>{f.label}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -442,11 +444,11 @@ export default function DocumentsScreen() {
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.amber500} />}
             ListEmptyComponent={
               isLoading ? (
-                <View style={s.center}><ActivityIndicator color={C.amber500} size="large" /></View>
+                <View style={s.center}><ActivityIndicator color={K.primary} size="large" /></View>
               ) : (
                 <View style={s.center}>
-                  <FolderOpen color={C.gray400} size={44} />
-                  <Text style={s.emptyText}>Aucun document en GED</Text>
+                  <FolderOpen color={K.textMuted} size={44} />
+                  <Text style={[s.emptyText, { color: K.textMuted }]}>Aucun document en GED</Text>
                 </View>
               )
             }
@@ -454,19 +456,19 @@ export default function DocumentsScreen() {
               const conf = CONFIDENTIALITE_CONFIG[doc.confidentialite as Confidentialite] ?? CONFIDENTIALITE_CONFIG.public;
               const MimeIcon = getMimeIcon(doc.typeDocument);
               return (
-                <TouchableOpacity style={s.docCard} onPress={() => setPreviewDoc(doc)} activeOpacity={0.85}>
-                  <View style={s.docIconWrap}><MimeIcon color={C.amber600} size={22} /></View>
+                <TouchableOpacity style={[s.docCard, { backgroundColor: K.surface, borderColor: K.border }]} onPress={() => setPreviewDoc(doc)} activeOpacity={0.85}>
+                  <View style={[s.docIconWrap, { backgroundColor: K.primaryLight }]}><MimeIcon color={K.primary} size={22} /></View>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.docName} numberOfLines={1}>{doc.nom}</Text>
+                    <Text style={[s.docName, { color: K.text }]} numberOfLines={1}>{doc.nom}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
                       <View style={[s.confBadge, { backgroundColor: conf.bg }]}>
                         <Text style={[s.confBadgeText, { color: conf.color }]}>{conf.label}</Text>
                       </View>
-                      <Text style={s.docMetaText}>{formatSize(doc.tailleKo)} · {formatDate(doc.createdAt)}</Text>
+                      <Text style={[s.docMetaText, { color: K.textMuted }]}>{formatSize(doc.tailleKo)} · {formatDate(doc.createdAt)}</Text>
                     </View>
                   </View>
-                  <TouchableOpacity style={s.actionIconBtn} onPress={() => handleDownload(doc)}>
-                    <Download color={C.green600} size={16} />
+                  <TouchableOpacity style={[s.actionIconBtn, { backgroundColor: K.successLight }]} onPress={() => handleDownload(doc)}>
+                    <Download color={K.success} size={16} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               );
@@ -477,22 +479,22 @@ export default function DocumentsScreen() {
 
       {/* ── MODE 2 : ASSISTANT IA JURIDIQUE ── */}
       {mainTab === 'ia' && (
-        <View style={{ flex: 1, backgroundColor: C.gray50 }}>
+        <View style={{ flex: 1, backgroundColor: K.bg }}>
           {/* Sélecteur de Dossier pour l'IA */}
-          <TouchableOpacity style={s.dossierSelectorBar} onPress={() => setShowDossierModal(true)} activeOpacity={0.8}>
-            <Scale color={C.amber600} size={18} />
-            <Text style={s.dossierSelectorText} numberOfLines={1}>
+          <TouchableOpacity style={[s.dossierSelectorBar, { backgroundColor: K.surface, borderBottomColor: K.border }]} onPress={() => setShowDossierModal(true)} activeOpacity={0.8}>
+            <Scale color={K.primary} size={18} />
+            <Text style={[s.dossierSelectorText, { color: K.text }]} numberOfLines={1}>
               {selectedDossier ? `Affaire : ${selectedDossier.titre}` : 'Sélectionner un dossier d\'affaire à analyser…'}
             </Text>
-            <ChevronDown color={C.gray400} size={16} />
+            <ChevronDown color={K.textMuted} size={16} />
           </TouchableOpacity>
 
           {/* Suggestions rapides */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 50 }} contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingVertical: 6 }}>
             {IA_SUGGESTIONS.map((sug, idx) => (
-              <TouchableOpacity key={idx} style={s.sugChip} onPress={() => handleSendIaMessage(sug.text)} activeOpacity={0.8}>
-                <sug.Icon color={C.amber700} size={13} />
-                <Text style={s.sugText}>{sug.text}</Text>
+              <TouchableOpacity key={idx} style={[s.sugChip, { backgroundColor: K.primaryLight, borderColor: K.primary }]} onPress={() => handleSendIaMessage(sug.text)} activeOpacity={0.8}>
+                <sug.Icon color={K.primary} size={13} />
+                <Text style={[s.sugText, { color: K.primary }]}>{sug.text}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -500,35 +502,35 @@ export default function DocumentsScreen() {
           {/* Liste des Messages IA */}
           <ScrollView style={{ flex: 1, padding: 12 }} contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
             {messages.map(m => (
-              <View key={m.id} style={[s.msgBubble, m.type === 'user' ? s.msgUser : s.msgAssistant]}>
+              <View key={m.id} style={[s.msgBubble, m.type === 'user' ? [s.msgUser, { backgroundColor: K.primary }] : [s.msgAssistant, { backgroundColor: K.surface, borderColor: K.border }]]}>
                 {m.type === 'assistant' && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Brain color={C.amber600} size={14} />
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.amber900 }}>IA Cabinet Manager</Text>
+                    <Brain color={K.primary} size={14} />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: K.primary }}>IA Cabinet Manager</Text>
                   </View>
                 )}
-                <Text style={[s.msgText, m.type === 'user' && { color: C.white }]}>{m.content}</Text>
+                <Text style={[s.msgText, { color: m.type === 'user' ? (isDark ? C.gray900 : '#ffffff') : K.text }]}>{m.content}</Text>
               </View>
             ))}
             {isTyping && (
-              <View style={[s.msgBubble, s.msgAssistant, { flexDirection: 'row', gap: 8, alignItems: 'center' }]}>
-                <ActivityIndicator size="small" color={C.amber500} />
-                <Text style={{ fontSize: 12, color: C.gray500 }}>Analyse juridique en cours…</Text>
+              <View style={[s.msgBubble, s.msgAssistant, { backgroundColor: K.surface, borderColor: K.border, flexDirection: 'row', gap: 8, alignItems: 'center' }]}>
+                <ActivityIndicator size="small" color={K.primary} />
+                <Text style={{ fontSize: 12, color: K.textMuted }}>Analyse juridique en cours…</Text>
               </View>
             )}
           </ScrollView>
 
           {/* Saisie Question IA */}
-          <View style={s.inputBar}>
+          <View style={[s.inputBar, { backgroundColor: K.surface, borderTopColor: K.border }]}>
             <TextInput
-              style={s.iaTextInput}
+              style={[s.iaTextInput, { backgroundColor: K.bg, color: K.text }]}
               value={iaInput}
               onChangeText={setIaInput}
               placeholder="Posez une question à l'IA..."
-              placeholderTextColor={C.gray400}
+              placeholderTextColor={K.textMuted}
             />
             <TouchableOpacity style={s.sendBtn} onPress={() => handleSendIaMessage()} activeOpacity={0.8}>
-              <Send color={C.gray900} size={18} />
+              <Send color={isDark ? C.gray900 : '#ffffff'} size={18} />
             </TouchableOpacity>
           </View>
         </View>
@@ -537,26 +539,26 @@ export default function DocumentsScreen() {
       {/* Modal Consultation Document GED */}
       <Modal visible={previewDoc !== null} transparent animationType="slide" onRequestClose={() => setPreviewDoc(null)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setPreviewDoc(null)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
+          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.handle, { backgroundColor: K.border }]} />
             {previewDoc && (
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={s.previewTitle}>{previewDoc.nom}</Text>
-                <Text style={s.previewSub}>{formatSize(previewDoc.tailleKo)} · {previewDoc.typeDocument || 'Fichier'}</Text>
+                <Text style={[s.previewTitle, { color: K.text }]}>{previewDoc.nom}</Text>
+                <Text style={[s.previewSub, { color: K.textMuted }]}>{formatSize(previewDoc.tailleKo)} · {previewDoc.typeDocument || 'Fichier'}</Text>
                 <TouchableOpacity style={s.mainActionBtn} onPress={() => handleApercu(previewDoc)}>
-                  <ExternalLink color={C.gray900} size={18} />
+                  <ExternalLink color={isDark ? C.gray900 : '#ffffff'} size={18} />
                   <Text style={s.mainActionText}>Aperçu via une application compatible</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.mainActionBtnSecondary} onPress={() => handleDownload(previewDoc)}>
                   <Download color={C.gray900} size={18} />
-                  <Text style={s.mainActionText}>Télécharger dans les fichiers du téléphone</Text>
+                  <Text style={[s.mainActionText, { color: C.gray900 }]}>Télécharger dans les fichiers du téléphone</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteDoc(previewDoc)}>
-                  <Trash2 color={C.red600} size={16} />
-                  <Text style={s.deleteText}>Supprimer du cabinet</Text>
+                  <Trash2 color={K.danger} size={16} />
+                  <Text style={[s.deleteText, { color: K.danger }]}>Supprimer du cabinet</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.cancelBtn} onPress={() => setPreviewDoc(null)}>
-                  <Text style={s.cancelText}>Fermer</Text>
+                <TouchableOpacity style={[s.cancelBtn, { borderColor: K.border }]} onPress={() => setPreviewDoc(null)}>
+                  <Text style={[s.cancelText, { color: K.textMuted }]}>Fermer</Text>
                 </TouchableOpacity>
               </ScrollView>
             )}
@@ -567,14 +569,14 @@ export default function DocumentsScreen() {
       {/* Modal Sélection Dossier pour l'IA */}
       <Modal visible={showDossierModal} transparent animationType="slide" onRequestClose={() => setShowDossierModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowDossierModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={{ fontSize: 16, fontWeight: '700', color: C.gray900, marginBottom: 12 }}>Sélectionner une affaire à analyser</Text>
+          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.handle, { backgroundColor: K.border }]} />
+            <Text style={{ fontSize: 16, fontWeight: '700', color: K.text, marginBottom: 12 }}>Sélectionner une affaire à analyser</Text>
             <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
               {dossiers.map(d => (
-                <TouchableOpacity key={d.id} style={s.dossierSelectOption} onPress={() => handleSelectDossier(d)}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{d.numeroAffaire} — {d.titre}</Text>
-                  <Text style={{ fontSize: 11, color: C.gray500 }}>{d.juridiction || 'Non spécifiée'}</Text>
+                <TouchableOpacity key={d.id} style={[s.dossierSelectOption, { borderBottomColor: K.border }]} onPress={() => handleSelectDossier(d)}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: K.text }}>{d.numeroAffaire} — {d.titre}</Text>
+                  <Text style={{ fontSize: 11, color: K.textMuted }}>{d.juridiction || 'Non spécifiée'}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -584,76 +586,76 @@ export default function DocumentsScreen() {
       {/* Modal Import Document (Drive, Photo, Scan, Dossier) */}
       <Modal visible={showUploadModal} transparent animationType="slide" onRequestClose={() => setShowUploadModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowUploadModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 14 }}>Importer un document</Text>
+          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.handle, { backgroundColor: K.border }]} />
+            <Text style={{ fontSize: 17, fontWeight: '700', color: K.text, marginBottom: 14 }}>Importer un document</Text>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
               {/* Options de Captures / Importation */}
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Source du document</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: K.textSecondary, marginBottom: 8 }}>Source du document</Text>
               <View style={{ gap: 8, marginBottom: 16 }}>
 
                 {/* Option 1: Drive / Stockage */}
-                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.amber50, borderWidth: 1, borderColor: C.amber300, borderRadius: 12, padding: 12 }} onPress={handlePickDocument} activeOpacity={0.8}>
-                  <Paperclip color={C.amber600} size={20} />
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: K.primaryLight, borderWidth: 1, borderColor: K.primary, borderRadius: 12, padding: 12 }} onPress={handlePickDocument} activeOpacity={0.8}>
+                  <Paperclip color={K.primary} size={20} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.amber900 }}>Stockage interne ou Drive</Text>
-                    <Text style={{ fontSize: 11, color: C.amber700, marginTop: 2 }}>Fichiers PDF, Word, Excel, Images</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: K.text }}>Stockage interne ou Drive</Text>
+                    <Text style={{ fontSize: 11, color: K.textMuted, marginTop: 2 }}>Fichiers PDF, Word, Excel, Images</Text>
                   </View>
                 </TouchableOpacity>
 
                 {/* Option 2: Prendre une Photo */}
-                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.blue50, borderWidth: 1, borderColor: C.blue100, borderRadius: 12, padding: 12 }} onPress={handleTakePhoto} activeOpacity={0.8}>
-                  <Camera color={C.blue600} size={20} />
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: K.infoLight, borderWidth: 1, borderColor: K.info, borderRadius: 12, padding: 12 }} onPress={handleTakePhoto} activeOpacity={0.8}>
+                  <Camera color={K.info} size={20} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.blue700 }}>Prendre une photo</Text>
-                    <Text style={{ fontSize: 11, color: C.blue600, marginTop: 2 }}>Photographier une pièce ou un document physique</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: K.text }}>Prendre une photo</Text>
+                    <Text style={{ fontSize: 11, color: K.textMuted, marginTop: 2 }}>Photographier une pièce ou un document physique</Text>
                   </View>
                 </TouchableOpacity>
 
                 {/* Option 3: Numériser / Scanner */}
-                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.green50, borderWidth: 1, borderColor: C.green200, borderRadius: 12, padding: 12 }} onPress={handleScanDocument} activeOpacity={0.8}>
-                  <Scan color={C.green600} size={20} />
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: K.successLight, borderWidth: 1, borderColor: K.success, borderRadius: 12, padding: 12 }} onPress={handleScanDocument} activeOpacity={0.8}>
+                  <Scan color={K.success} size={20} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.green700 }}>Numériser / Scanner un document</Text>
-                    <Text style={{ fontSize: 11, color: C.green600, marginTop: 2 }}>Scan haute précision générant un document propre</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: K.text }}>Numériser / Scanner un document</Text>
+                    <Text style={{ fontSize: 11, color: K.textMuted, marginTop: 2 }}>Scan haute précision générant un document propre</Text>
                   </View>
                 </TouchableOpacity>
               </View>
 
               {/* Fichier Sélectionné */}
               {selectedFileName ? (
-                <View style={{ backgroundColor: C.gray100, padding: 10, borderRadius: 10, marginBottom: 12 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray900 }}>Fichier : {selectedFileName}</Text>
+                <View style={{ backgroundColor: K.bgTertiary, padding: 10, borderRadius: 10, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: K.text }}>Fichier : {selectedFileName}</Text>
                 </View>
               ) : null}
 
               {/* Nom du document */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Intitulé du document</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Intitulé du document</Text>
                 <TextInput
-                  style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: C.gray900 }}
+                  style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: K.text, backgroundColor: K.inputBg }}
                   value={uploadNom}
                   onChangeText={setUploadNom}
                   placeholder="Nom de la pièce ou de l'acte..."
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
               {/* Confidentialité */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Niveau de Confidentialité</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Niveau de Confidentialité</Text>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   {(['public', 'confidentiel', 'secret'] as Confidentialite[]).map(conf => (
                     <TouchableOpacity
                       key={conf}
                       onPress={() => setUploadConfidentialite(conf)}
                       style={[
-                        { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: C.gray100, borderWidth: 1, borderColor: C.gray200 },
-                        uploadConfidentialite === conf && { backgroundColor: C.amber500, borderColor: C.amber500 },
+                        { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: K.bgTertiary, borderWidth: 1, borderColor: K.border },
+                        uploadConfidentialite === conf && { backgroundColor: K.primary, borderColor: K.primary },
                       ]}
                     >
-                      <Text style={[{ fontSize: 12, fontWeight: '500', color: C.gray700 }, uploadConfidentialite === conf && { color: C.gray900, fontWeight: '700' }]}>
+                      <Text style={[{ fontSize: 12, fontWeight: '500', color: K.textSecondary }, uploadConfidentialite === conf && { color: isDark ? C.gray900 : '#ffffff', fontWeight: '700' }]}>
                         {conf.toUpperCase()}
                       </Text>
                     </TouchableOpacity>
@@ -663,18 +665,18 @@ export default function DocumentsScreen() {
 
               {/* Sélection Dossier (Optionnel) */}
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Rattacher à un dossier (Optionnel)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Rattacher à un dossier (Optionnel)</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {dossiers.map(d => (
                     <TouchableOpacity
                       key={d.id}
                       onPress={() => setUploadDossierId(Number(d.id))}
                       style={[
-                        { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.gray100, borderWidth: 1, borderColor: C.gray200 },
-                        Number(uploadDossierId) === Number(d.id) && { backgroundColor: C.amber100, borderColor: C.amber400 },
+                        { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: K.bgTertiary, borderWidth: 1, borderColor: K.border },
+                        Number(uploadDossierId) === Number(d.id) && { backgroundColor: K.primaryLight, borderColor: K.primary },
                       ]}
                     >
-                      <Text style={[{ fontSize: 12, color: C.gray700 }, Number(uploadDossierId) === Number(d.id) && { color: C.amber900, fontWeight: '700' }]}>
+                      <Text style={[{ fontSize: 12, color: K.textSecondary }, Number(uploadDossierId) === Number(d.id) && { color: K.primary, fontWeight: '700' }]}>
                         {d.numeroAffaire} — {d.titre}
                       </Text>
                     </TouchableOpacity>
@@ -683,16 +685,16 @@ export default function DocumentsScreen() {
               </View>
 
               <TouchableOpacity
-                style={[{ backgroundColor: C.amber500, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }, uploading && { opacity: 0.6 }]}
+                style={[{ backgroundColor: K.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }, uploading && { opacity: 0.6 }]}
                 onPress={handleSaveUpload}
                 disabled={uploading}
                 activeOpacity={0.85}
               >
-                {uploading ? <ActivityIndicator color={C.gray900} /> : <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Enregistrer le document</Text>}
+                {uploading ? <ActivityIndicator color={isDark ? C.gray900 : '#ffffff'} /> : <Text style={{ fontSize: 14, fontWeight: '700', color: isDark ? C.gray900 : '#ffffff' }}>Enregistrer le document</Text>}
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 }} onPress={() => setShowUploadModal(false)} activeOpacity={0.8}>
-                <Text style={{ fontSize: 14, fontWeight: '500', color: C.gray500 }}>Annuler</Text>
+              <TouchableOpacity style={{ borderWidth: 1, borderColor: K.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 }} onPress={() => setShowUploadModal(false)} activeOpacity={0.8}>
+                <Text style={{ fontSize: 14, fontWeight: '500', color: K.textMuted }}>Annuler</Text>
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>

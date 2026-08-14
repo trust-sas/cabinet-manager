@@ -18,20 +18,22 @@ import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  // ── Connexion ─────────────────────────────────────────────────────────────
+  // ── Connexion par téléphone (ou identifiant) ──────────────────────────────
 
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
-    @Body() body: { email: string; motDePasse: string },
+    @Body() body: { telephone?: string; identifiant?: string; email?: string; motDePasse?: string; password?: string },
     @Req() req: Request,
   ) {
     const appareilId = (req.headers['x-device-id'] as string) ?? 'unknown';
-    return this.authService.login(body.email, body.motDePasse || (body as any).password, appareilId);
+    const identifiant = body.telephone || body.identifiant || body.email || '';
+    const pass = body.motDePasse || body.password || '';
+    return this.authService.login(identifiant, pass, appareilId);
   }
 
-  // ── Inscription publique (Avocat) ────────────────────────────────────────
+  // ── Inscription publique (Avocat) par téléphone ──────────────────────────
 
   @Public()
   @Post('register')
@@ -40,8 +42,8 @@ export class AuthController {
     return this.authService.register({
       nom: dto.nom,
       prenom: dto.prenom,
-      email: dto.email,
       telephone: dto.telephone,
+      email: dto.email,
       dateNaissance: dto.dateNaissance,
       motDePasse: dto.motDePasse,
       role: dto.role,
@@ -66,36 +68,40 @@ export class AuthController {
     return this.authService.loginWithSocial({ email: body.email, identityToken: body.identityToken, provider: 'apple', nom: body.nom, appareilId });
   }
 
-  // ── Authentification par Code OTP Email ───────────────────────────────────
+  // ── Authentification / SMS OTP (Code à 6 chiffres via SMS) ───────────────
 
   @Public()
   @Post('send-code')
   @HttpCode(HttpStatus.OK)
-  async sendCode(@Body() body: { email: string }) {
-    return this.authService.sendOtp(body.email);
+  async sendCode(@Body() body: { telephone?: string; email?: string; target?: string }) {
+    const target = body.telephone || body.target || body.email || '';
+    return this.authService.sendOtp(target);
   }
 
   @Public()
   @Post('send-otp')
   @HttpCode(HttpStatus.OK)
-  async sendOtp(@Body() body: { email: string }) {
-    return this.authService.sendOtp(body.email);
+  async sendOtp(@Body() body: { telephone?: string; email?: string; target?: string }) {
+    const target = body.telephone || body.target || body.email || '';
+    return this.authService.sendOtp(target);
   }
 
   @Public()
   @Post('verify-code')
   @HttpCode(HttpStatus.OK)
-  async verifyCode(@Body() body: { email: string; code: string }, @Req() req: Request) {
+  async verifyCode(@Body() body: { telephone?: string; email?: string; target?: string; code: string }, @Req() req: Request) {
     const appareilId = (req.headers['x-device-id'] as string) ?? 'otp-auth';
-    return this.authService.verifyOtp(body.email, body.code, appareilId);
+    const target = body.telephone || body.target || body.email || '';
+    return this.authService.verifyOtp(target, body.code, appareilId);
   }
 
   @Public()
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
-  async verifyOtp(@Body() body: { email: string; code: string }, @Req() req: Request) {
+  async verifyOtp(@Body() body: { telephone?: string; email?: string; target?: string; code: string }, @Req() req: Request) {
     const appareilId = (req.headers['x-device-id'] as string) ?? 'otp-auth';
-    return this.authService.verifyOtp(body.email, body.code, appareilId);
+    const target = body.telephone || body.target || body.email || '';
+    return this.authService.verifyOtp(target, body.code, appareilId);
   }
 
   // ── Refresh token ─────────────────────────────────────────────────────────

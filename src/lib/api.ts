@@ -40,7 +40,7 @@ export type LoginResponse = TokenPair | PreAuthResponse;
 export interface ApiError {
   statusCode: number;
   message: string | string[];
-  error?: string;
+  error?: string | { code?: string; message?: string; status?: number };
 }
 
 // ── Gestion de la file pendant le refresh ────────────────────────────────────
@@ -90,8 +90,16 @@ api.interceptors.response.use(
       _retry?: boolean;
     };
 
-    // Seules les 401 sur des requêtes non-déjà-retentées déclenchent le refresh
-    if (error.response?.status !== 401 || originalRequest._retry) {
+    const isAuthRoute = Boolean(
+      originalRequest?.url?.includes('/auth/login') ||
+      originalRequest?.url?.includes('/auth/register') ||
+      originalRequest?.url?.includes('/auth/refresh') ||
+      originalRequest?.url?.includes('/auth/verify') ||
+      originalRequest?.url?.includes('/auth/send')
+    );
+
+    // Seules les 401 sur des requêtes normales (non-auth) déclenchent le refresh
+    if (error.response?.status !== 401 || originalRequest._retry || isAuthRoute) {
       return Promise.reject(error);
     }
 
@@ -165,14 +173,33 @@ export const authExpiredEmitter = {
 export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as ApiError | undefined;
+    if (typeof data?.error === 'object' && data.error?.message) {
+      return data.error.message;
+    }
     if (data?.message) {
       return Array.isArray(data.message) ? data.message.join(', ') : data.message;
     }
-    if (error.message === 'Network Error') return 'Impossible de joindre le serveur';
-    if (error.code === 'ECONNABORTED') return 'La requête a pris trop de temps';
+    const status = error.response?.status;
+    if (status === 401) return 'Adresse e-mail ou mot de passe incorrect. Veuillez vérifier vos identifiants.';
+    if (status === 403) return 'Accès non autorisé. Vous n’avez pas les droits requis pour cette opération.';
+    if (status === 404) return 'Élément introuvable ou déplacé.';
+    if (status === 409) return 'Ces informations existent déjà dans votre espace.';
+    if (status === 422) return 'Saisie incomplète. Veuillez vérifier les champs du formulaire.';
+    if (status && status >= 500) return 'Le service est temporairement indisponible. Veuillez réessayer dans un instant.';
+    if (error.message === 'Network Error') return 'Connexion au serveur impossible. Veuillez vérifier votre connexion internet.';
+    if (error.code === 'ECONNABORTED') return 'Le délai de réponse a été dépassé. Veuillez réessayer.';
   }
   if (error instanceof Error) return error.message;
-  return 'Une erreur inattendue est survenue';
+  return 'Une erreur est survenue. Veuillez réessayer.';
+}
+
+export function formatPhoneWithCountryCode(phone: string): string {
+  let clean = (phone || '').trim().replace(/\s+/g, '');
+  if (!clean) return '';
+  if (!clean.startsWith('+') && !clean.includes('@')) {
+    clean = `+237${clean.replace(/^0/, '')}`;
+  }
+  return clean;
 }
 
 export default api;

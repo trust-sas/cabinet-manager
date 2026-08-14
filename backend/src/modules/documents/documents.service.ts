@@ -180,8 +180,9 @@ ${doc.description || 'Document officiel enregistré dans la base de données du 
   }
 
   async findAll(query: QueryDocumentsDto, user: AuthenticatedUser): Promise<ResultatPagine<Document>> {
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
     const qb = this.repo.createQueryBuilder('d')
-      .where('d.cabinetId = :cabinetId', { cabinetId: user.cabinetId })
+      .where('(d.cabinetId = :cabinetId OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
       .andWhere('d.deletedAt IS NULL');
 
     if (query.dossierId)       qb.andWhere('d.dossierId = :dossierId', { dossierId: query.dossierId });
@@ -198,9 +199,13 @@ ${doc.description || 'Document officiel enregistré dans la base de données du 
   }
 
   async findOne(id: number, user: AuthenticatedUser): Promise<Document> {
-    const doc = await this.repo.findOne({
-      where: { id, cabinetId: user.cabinetId, deletedAt: null as any },
-    });
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const doc = await this.repo.createQueryBuilder('d')
+      .where('d.id = :id', { id })
+      .andWhere('(d.cabinetId = :cabinetId OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
+      .andWhere('d.deletedAt IS NULL')
+      .getOne();
+
     if (!doc) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'Document introuvable.', status: 404 } });
     return doc;
   }

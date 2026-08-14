@@ -1,12 +1,18 @@
-import { IsEmail, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateInvitationDto {
   @IsNumber()
   dossierId: number;
 
-  @IsEmail()
+  /** Numéro de téléphone du destinataire (identifiant principal) */
+  @IsString()
   @IsNotEmpty()
-  destinataireEmail: string;
+  destinataireTelephone: string;
+
+  /** @deprecated Compatibilité : utiliser destinataireTelephone */
+  @IsOptional()
+  @IsString()
+  destinataireEmail?: string;
 
   @IsString()
   @IsNotEmpty()

@@ -6,9 +6,10 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { CloudOff, RefreshCw } from 'lucide-react-native';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { PreferencesProvider, usePreferences } from '@/context/PreferencesContext';
+import { ToastProvider } from '@/components/ui/Toast';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -80,7 +81,9 @@ export default function RootLayout() {
   return (
     <PreferencesProvider>
       <AuthProvider>
-        <AppNavigator />
+        <ToastProvider>
+          <AppNavigator />
+        </ToastProvider>
       </AuthProvider>
     </PreferencesProvider>
   );
@@ -91,8 +94,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, paddingHorizontal: 16, paddingVertical: 6, zIndex: 999,
   },
-  offlineBannerOffline: { backgroundColor: C.gray700 },
-  offlineBannerSyncing: { backgroundColor: C.amber600 },
-  offlineText:   { fontSize: 12, color: C.white, fontWeight: '500', flex: 1 },
-  offlineSyncBtn:{ fontSize: 12, color: C.white, fontWeight: '700', textDecorationLine: 'underline' },
+  offlineBannerOffline:  { backgroundColor: C.gray700 },
+  offlineBannerSyncing:  { backgroundColor: C.amber600 },
+  offlineText:    { fontSize: 12, color: C.white, fontWeight: '500', flex: 1 },
+  offlineSyncBtn: { fontSize: 12, color: C.white, fontWeight: '700', textDecorationLine: 'underline' },
 });

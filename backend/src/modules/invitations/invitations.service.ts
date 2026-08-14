@@ -31,15 +31,31 @@ export class InvitationsService {
   ) {}
 
   async create(dto: CreateInvitationDto, inviteurUser: AuthenticatedUser): Promise<DossierInvitationEntity> {
-    const destEmailClean = dto.destinataireEmail.trim().toLowerCase();
+    // Identifiant du destinataire : téléphone en priorité, email en fallback
+    const destTelephone = (dto.destinataireTelephone || '').trim().replace(/\s+/g, '');
+    const destEmail = (dto.destinataireEmail || '').trim().toLowerCase();
 
-    // 1. Vérification si l'email destinataire existe dans la base de données
-    const destinataire = await this.usersService.findByEmail(destEmailClean);
+    if (!destTelephone && !destEmail) {
+      throw new BadRequestException({
+        error: { code: 'BAD_REQUEST', message: 'Le numéro de téléphone du destinataire est obligatoire.', status: 400 },
+      });
+    }
+
+    // 1. Recherche du destinataire — téléphone en priorité, email en fallback
+    let destinataire: Utilisateur | null = null;
+    if (destTelephone) {
+      destinataire = await this.usersService.findByTelephone(destTelephone);
+    }
+    if (!destinataire && destEmail) {
+      destinataire = await this.usersService.findByEmail(destEmail);
+    }
+
     if (!destinataire) {
+      const identifiantAffiche = destTelephone || destEmail;
       throw new NotFoundException({
         error: {
           code: 'USER_NOT_FOUND',
-          message: `L'adresse email "${destEmailClean}" ne correspond à aucun utilisateur enregistré dans l'application.`,
+          message: `Le numéro "${identifiantAffiche}" ne correspond à aucun utilisateur enregistré dans l'application.`,
           status: 404,
         },
       });
@@ -65,7 +81,7 @@ export class InvitationsService {
       throw new UnauthorizedException({
         error: {
           code: 'INVALID_PASSWORD',
-          message: 'Mot de passe incorrect. Impossible d\'envoyer l\'invitation.',
+          message: "Mot de passe incorrect. Impossible d'envoyer l'invitation.",
           status: 401,
         },
       });
@@ -85,10 +101,11 @@ export class InvitationsService {
     // 4. Vérification doublon : invitation déjà envoyée et encore valide (< 7 jours)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
     const existingInv = await this.invitationRepository
       .createQueryBuilder('inv')
       .where('inv.dossierId = :dossierId', { dossierId: dto.dossierId })
-      .andWhere('inv.destinataireEmail = :email', { email: destEmailClean })
+      .andWhere('inv.destinataireId = :userId', { userId: destinataire.id })
       .andWhere('inv.statut = :statut', { statut: 'en_attente' })
       .andWhere('inv.createdAt > :limit', { limit: sevenDaysAgo })
       .getOne();
@@ -100,13 +117,13 @@ export class InvitationsService {
       throw new ConflictException({
         error: {
           code: 'INVITATION_ALREADY_SENT',
-          message: `Une invitation a déjà été envoyée à "${destEmailClean}" pour ce dossier. Elle expire dans ${joursRestants} jour(s). Veuillez attendre sa réponse ou son expiration.`,
+          message: `Une invitation a déjà été envoyée pour ce dossier. Elle expire dans ${joursRestants} jour(s). Veuillez attendre sa réponse ou son expiration.`,
           status: 409,
         },
       });
     }
 
-    // 5. Création et enregistrement de l'invitation dans PostgreSQL
+    // 5. Création et enregistrement de l'invitation
     const inv = this.invitationRepository.create({
       cabinetId: inviteurUser.cabinetId,
       dossierId: dossier.id,
@@ -115,20 +132,23 @@ export class InvitationsService {
       juridiction: dossier.juridiction || 'Tribunal',
       inviteurId: inviteurUtilisateur.id,
       inviteurNom: inviteurUtilisateur.nom,
-      inviteurEmail: inviteurUtilisateur.email,
+      inviteurTelephone: inviteurUtilisateur.telephone || null,
+      inviteurEmail: inviteurUtilisateur.email || null,
       destinataireId: destinataire.id,
-      destinataireEmail: destEmailClean,
+      destinataireTelephone: destinataire.telephone || destTelephone || null,
+      destinataireEmail: destinataire.email || destEmail || null,
       statut: 'en_attente',
     });
 
     const savedInv = await this.invitationRepository.save(inv);
 
-    // 5. Création de la notification en BDD pour le destinataire
+    // 6. Notification push pour le destinataire
+    const inviteurIdentifiant = inviteurUtilisateur.telephone || inviteurUtilisateur.email || inviteurUtilisateur.nom;
     await this.notificationsService.create(
       {
         utilisateurId: destinataire.id,
         titre: `📩 Invitation au dossier ${dossier.numeroAffaire}`,
-        message: `${inviteurUtilisateur.nom} (${inviteurUtilisateur.email}) vous a invité à rejoindre le dossier "${dossier.titre}".`,
+        message: `${inviteurUtilisateur.nom} (${inviteurIdentifiant}) vous a invité à rejoindre le dossier "${dossier.titre}".`,
         type: NotificationType.INFO,
         entiteType: 'dossier',
         entiteId: dossier.id,
@@ -140,26 +160,29 @@ export class InvitationsService {
   }
 
   async findAllForUser(user: AuthenticatedUser): Promise<DossierInvitationEntity[]> {
-    const inviteurUtilisateur = await this.utilisateurRepository.findOne({
+    const currentUser = await this.utilisateurRepository.findOne({
       where: { id: user.id },
     });
-    if (!inviteurUtilisateur) return [];
+    if (!currentUser) return [];
 
-    const emailClean = inviteurUtilisateur.email.trim().toLowerCase();
+    const telephoneClean = (currentUser.telephone || '').trim().replace(/\s+/g, '');
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Retourner : toutes les invitations traitées + invitations en attente non expirées (<7j)
-    return this.invitationRepository
+    // Seul le destinataire voit les invitations reçues dans sa boîte
+    const qb = this.invitationRepository
       .createQueryBuilder('inv')
-      .where(
-        '(LOWER(inv.destinataireEmail) = :email OR LOWER(inv.inviteurEmail) = :email OR inv.destinataireId = :userId OR inv.inviteurId = :userId)',
-        { email: emailClean, userId: user.id },
-      )
-      .andWhere(
-        '(inv.statut != :statut OR inv.createdAt > :limit)',
-        { statut: 'en_attente', limit: sevenDaysAgo },
-      )
+      .where('inv.destinataireId = :userId', { userId: user.id });
+
+    if (telephoneClean) {
+      qb.orWhere('inv.destinataireTelephone = :tel', { tel: telephoneClean });
+    }
+
+    return qb
+      .andWhere('(inv.statut != :statut OR inv.createdAt > :limit)', {
+        statut: 'en_attente',
+        limit: sevenDaysAgo,
+      })
       .orderBy('inv.id', 'DESC')
       .getMany();
   }
@@ -199,11 +222,17 @@ export class InvitationsService {
     const updated = await this.invitationRepository.save(inv);
 
     // Notification retour pour l'expéditeur
+    const destinataireIdentifiant = currentUtilisateur?.telephone
+      || currentUtilisateur?.email
+      || String(user.id);
+
     await this.notificationsService.create(
       {
         utilisateurId: inv.inviteurId,
-        titre: accepter ? `✅ Invitation acceptée pour ${inv.dossierNumero}` : `❌ Invitation refusée pour ${inv.dossierNumero}`,
-        message: `${currentUtilisateur?.email || user.id} a ${accepter ? 'accepté' : 'refusé'} votre invitation pour le dossier "${inv.dossierTitre}".`,
+        titre: accepter
+          ? `✅ Invitation acceptée pour ${inv.dossierNumero}`
+          : `❌ Invitation refusée pour ${inv.dossierNumero}`,
+        message: `${currentUtilisateur?.nom || destinataireIdentifiant} a ${accepter ? 'accepté' : 'refusé'} votre invitation pour le dossier "${inv.dossierTitre}".`,
         type: NotificationType.INFO,
         entiteType: 'dossier',
         entiteId: inv.dossierId,
@@ -215,7 +244,7 @@ export class InvitationsService {
       success: true,
       message: accepter
         ? `Invitation acceptée pour le dossier ${inv.dossierNumero}.`
-        : `Invitation refusée.`,
+        : 'Invitation refusée.',
       invitation: updated,
     };
   }

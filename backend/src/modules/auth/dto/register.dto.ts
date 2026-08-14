@@ -14,12 +14,17 @@ export class RegisterDto {
   @IsOptional()
   prenom?: string;
 
+  /* Authentification par email mise en commentaire / optionnelle
   @IsEmail({}, { message: "L'adresse email fournie n'est pas valide." })
   email: string;
+  */
+  @IsOptional()
+  @IsString()
+  email?: string;
 
   @IsString()
-  @IsOptional()
-  telephone?: string;
+  @IsNotEmpty({ message: 'Le numéro de téléphone est obligatoire.' })
+  telephone: string;
 
   @IsString()
   @IsOptional()

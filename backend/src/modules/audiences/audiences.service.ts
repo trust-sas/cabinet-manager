@@ -47,8 +47,9 @@ export class AudiencesService {
   }
 
   async findAll(query: QueryAudiencesDto, user: AuthenticatedUser): Promise<ResultatPagine<Audience>> {
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
     const qb = this.repo.createQueryBuilder('a')
-      .where('a.cabinetId = :cabinetId', { cabinetId: user.cabinetId })
+      .where('(a.cabinetId = :cabinetId OR a.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
       .andWhere('a.deletedAt IS NULL');
 
     if (query.dossierId) qb.andWhere('a.dossierId = :dossierId', { dossierId: query.dossierId });

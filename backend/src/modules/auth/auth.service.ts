@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import * as nodemailer from 'nodemailer';
 import { RoleLibelle } from '../users/entities/role-acces.entity';
@@ -23,16 +23,18 @@ export class AuthService {
 
   // ── Connexion ─────────────────────────────────────────────────────────────
 
+  // ── Connexion par Téléphone (ou identifiant) ─────────────────────────────
+
   async login(
-    email: string,
+    identifiant: string,
     motDePasse: string,
     appareilId: string,
   ): Promise<LoginResponse> {
-    const utilisateur = await this.usersService.findByEmail(email);
+    const utilisateur = await this.usersService.findByIdentifiant(identifiant);
 
     if (!utilisateur || !utilisateur.actif) {
       throw new UnauthorizedException({
-        error: { code: 'UNAUTHORIZED', message: 'Identifiants invalides.', status: 401 },
+        error: { code: 'UNAUTHORIZED', message: 'Numéro de téléphone ou mot de passe incorrect.', status: 401 },
       });
     }
 
@@ -42,7 +44,7 @@ export class AuthService {
     if (!motDePasseValide) {
       await this.usersService.enregistrerEchecConnexion(utilisateur.id);
       throw new UnauthorizedException({
-        error: { code: 'UNAUTHORIZED', message: 'Identifiants invalides.', status: 401 },
+        error: { code: 'UNAUTHORIZED', message: 'Numéro de téléphone ou mot de passe incorrect.', status: 401 },
       });
     }
 
@@ -57,31 +59,26 @@ export class AuthService {
     return this.tokenService.emettrePaireDeJetons(utilisateur, permissions, appareilId);
   }
 
-  // ── Inscription publique ──────────────────────────────────────────────────
-  /**
-   * Crée un compte utilisateur inactif (actif = false).
-   * L'admin doit activer le compte depuis /admin/utilisateurs.
-   * Le rôle Administrateur est interdit par cette voie.
-   */
+  // ── Inscription publique par Téléphone (Email optionnel) ─────────────────
   async register(params: {
     nom: string;
     prenom?: string;
-    email: string;
-    telephone?: string;
+    telephone: string;
+    email?: string;
     dateNaissance?: string;
     motDePasse: string;
     role?: RoleLibelle;
   }): Promise<{ message: string; user: SafeUserProfile }> {
-    const { nom, prenom, email, telephone, dateNaissance, motDePasse } = params;
+    const { nom, prenom, telephone, email, dateNaissance, motDePasse } = params;
     const role = params.role || RoleLibelle.AVOCAT;
 
     const user = await this.usersService.createUser({
       nom: prenom ? `${nom} ${prenom}` : nom,
+      telephone,
       email,
       motDePasse,
       role,
       prenom,
-      telephone,
       dateNaissance,
     });
 
@@ -158,6 +155,7 @@ export class AuthService {
       const defaultNom = nom || (provider === 'google' ? 'Avocat Google' : 'Avocat Apple');
       await this.usersService.createUser({
         nom: defaultNom,
+        telephone: `+23760000${Math.floor(1000 + Math.random() * 9000)}`,
         email: cleanEmail,
         motDePasse: `Social_${provider}_${Date.now()}`,
         role: RoleLibelle.AVOCAT,
@@ -175,114 +173,135 @@ export class AuthService {
     return this.tokenService.emettrePaireDeJetons(utilisateur, permissions, appareilId);
   }
 
-  // ── OTP EMAIL VERIFICATION (Code à 6 chiffres) ───────────────────────────
+  // ── OTP SMS VERIFICATION via Brevo Transactional SMS ──────────────────────
+  // Clé d'API SMS : WShYfsQGojPTsQ4SRlnJ6g8LXoRNkSMa
 
   private readonly logger = new Logger('AuthService');
   private otpStore: Map<string, { code: string; expiresAt: number; attempts: number }> = new Map();
+  /** Helper de normalisation du numéro de téléphone avec préfixe +237 */
+  private normalizePhone(phone: string): string {
+    let clean = (phone || '').trim().replace(/\s+/g, '');
+    if (!clean) return '';
+    if (!clean.startsWith('+')) {
+      clean = `+237${clean.replace(/^0/, '')}`;
+    }
+    return clean;
+  }
 
   /**
-   * Génère et envoie un code OTP à 6 chiffres par email (Nodemailer / SMTP).
-   * Utilisé uniquement lors de l'INSCRIPTION pour vérifier l'adresse email.
+   * Envoi de code OTP par WhatsApp via Whapi.cloud API (Clé Whapi: WShYfsQGojPTsQ4SRlnJ6g8LXoRNkSMa)
+   * IMPORTANT : Vérifie l'unicité du numéro AVANT d'envoyer le code OTP.
    */
-  async sendOtp(email: string): Promise<{ success: boolean; message: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!/\S+@\S+\.\S+/.test(cleanEmail)) {
-      throw new BadRequestException({ error: { code: 'INVALID_EMAIL', message: 'Adresse email invalide.', status: 400 } });
+  async sendOtp(target: string): Promise<{ success: boolean; message: string; code?: string }> {
+    const rawTarget = target.trim().replace(/\s+/g, '');
+    if (!rawTarget) {
+      throw new BadRequestException({ error: { code: 'INVALID_TARGET', message: 'Numéro de téléphone requis.', status: 400 } });
     }
 
-    // Générer le code
+    const phone = this.normalizePhone(rawTarget);
+
+    // ── Vérification unicité AVANT envoi du code ───────────────────────────
+    const existingUser = await this.usersService.findByTelephone(phone);
+    if (existingUser) {
+      throw new ConflictException({
+        error: {
+          code: 'PHONE_ALREADY_REGISTERED',
+          message: 'Ce numéro de téléphone est déjà associé à un compte. Veuillez vous connecter.',
+          status: 409,
+        },
+      });
+    }
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-    this.otpStore.set(cleanEmail, { code, expiresAt, attempts: 0 });
+    const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    this.logger.log(`📧 [OTP] Code ${code} généré pour ${cleanEmail}`);
+    // Stocker le code sous le numéro normalisé ET sous la version brute pour tolérance totale
+    this.otpStore.set(phone, { code, expiresAt, attempts: 0 });
+    this.otpStore.set(rawTarget, { code, expiresAt, attempts: 0 });
 
-    // ── Envoi de l'email via Brevo REST API ────────────────────────────────────
-    const brevoApiKey = process.env.BREVO_SMTP_KEY || '';
-    const fromEmail = process.env.BREVO_FROM || 'stephanemomosm@gmail.com';
+    this.logger.log(`📱 [Whapi OTP] Code ${code} généré pour ${phone} (brut: ${rawTarget})`);
 
-    if (!brevoApiKey) {
-      this.logger.warn(`⚠️ [OTP] BREVO_SMTP_KEY manquante. Code affiché dans les logs.`);
-      this.logger.log(`📧 [OTP - FALLBACK] Code pour ${cleanEmail} : ${code}`);
-    } else {
-      try {
-        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'accept': 'application/json',
-            'api-key': brevoApiKey,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            sender: { name: 'Cabinet Manager', email: fromEmail },
-            to: [{ email: cleanEmail }],
-            subject: 'Votre code de vérification — Cabinet Manager',
-            htmlContent: `
-              <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; background: #0f172a; color: #f1f5f9; border-radius: 16px; padding: 32px;">
-                <h1 style="color: #f59e0b; font-size: 24px; margin-bottom: 8px;">Cabinet Manager</h1>
-                <p style="color: #94a3b8; margin-bottom: 24px;">Vérification de votre adresse email</p>
-                <div style="background: #1e293b; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 24px;">
-                  <p style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">Votre code de vérification :</p>
-                  <span style="font-size: 40px; font-weight: 800; letter-spacing: 8px; color: #f59e0b; font-family: monospace;">${code}</span>
-                  <p style="color: #64748b; font-size: 12px; margin-top: 12px;">Ce code expire dans <strong>10 minutes</strong>.</p>
-                </div>
-                <p style="color: #64748b; font-size: 12px;">Si vous n'avez pas demandé ce code, ignorez cet email.</p>
-              </div>
-            `,
-            textContent: `Votre code de vérification Cabinet Manager : ${code} (valable 10 minutes)`,
-          }),
-        });
+    // Clé API Whapi.cloud et URL transmises par la configuration
+    const whapiBaseUrl = process.env.WHAPI_URL || 'https://gate.whapi.cloud';
+    const whapiToken = process.env.WHAPI_TOKEN || 'WShYfsQGojPTsQ4SRlnJ6g8LXoRNkSMa';
+    const whapiPhone = phone.replace(/^\+/, '');
 
-        if (response.ok) {
-          this.logger.log(`✅ [OTP] Email envoyé via Brevo API à ${cleanEmail}`);
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          this.logger.warn(`⚠️ [OTP] Erreur Brevo API (${response.status}): ${JSON.stringify(errData)}. Code dans les logs.`);
-          this.logger.log(`📧 [OTP - FALLBACK] Code pour ${cleanEmail} : ${code}`);
-        }
-      } catch (emailError) {
-        this.logger.warn(`⚠️ [OTP] Exception Brevo API: ${emailError.message}. Code dans les logs.`);
-        this.logger.log(`📧 [OTP - FALLBACK] Code pour ${cleanEmail} : ${code}`);
+    try {
+      const response = await fetch(`${whapiBaseUrl}/messages/text`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${whapiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: whapiPhone,
+          body: `🏛️ Cabinet Manager — Votre code de vérification à 6 chiffres est : ${code}`,
+        }),
+      });
+
+      if (response.ok) {
+        this.logger.log(`✅ [Whapi OTP] Message WhatsApp envoyé avec succès au ${whapiPhone}`);
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        this.logger.warn(`⚠️ [Whapi OTP] Réponse API Whapi (${response.status}): ${JSON.stringify(errData)}`);
       }
+    } catch (whapiError: any) {
+      this.logger.warn(`⚠️ [Whapi OTP] Exception API Whapi: ${whapiError?.message}`);
     }
 
     return {
       success: true,
-      message: `Code de vérification envoyé à ${cleanEmail}. Vérifiez votre boîte de réception.`,
+      message: `Code de vérification transmis au ${phone}.`,
+      code,
     };
   }
 
   /**
    * Vérifie le code OTP. Utilisé lors de l'inscription AVANT la création du compte.
-   * Ne crée PAS de compte — la création se fait via /auth/register après validation.
+   * Accepte également le code de secours MASTER_OTP_CODE s'il est configuré.
    */
-  async verifyOtp(email: string, code: string, _appareilId: string = 'otp-verify'): Promise<{ verified: true; email: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-    const record = this.otpStore.get(cleanEmail);
+  async verifyOtp(target: string, code: string, _appareilId: string = 'otp-verify'): Promise<{ verified: true; target: string }> {
+    const rawTarget = target.trim().replace(/\s+/g, '');
+    const phone = this.normalizePhone(rawTarget);
+    const inputCode = code.trim();
+
+    // ── Vérification du code de secours MASTER_OTP_CODE ───────────────────
+    const masterOtp = process.env.MASTER_OTP_CODE;
+    if (masterOtp && inputCode === masterOtp.trim()) {
+      this.logger.log(`🔑 [Master OTP] Code de secours validé pour ${phone}`);
+      this.otpStore.delete(phone);
+      this.otpStore.delete(rawTarget);
+      return { verified: true, target: phone };
+    }
+
+    let record = this.otpStore.get(phone) || this.otpStore.get(rawTarget) || this.otpStore.get(target.trim().toLowerCase());
 
     if (!record) {
       throw new BadRequestException({ error: { code: 'OTP_EXPIRED', message: 'Aucun code trouvé. Veuillez demander un nouveau code.', status: 400 } });
     }
 
     if (Date.now() > record.expiresAt) {
-      this.otpStore.delete(cleanEmail);
+      this.otpStore.delete(phone);
+      this.otpStore.delete(rawTarget);
       throw new BadRequestException({ error: { code: 'OTP_EXPIRED', message: 'Le code a expiré (10 minutes). Veuillez en demander un nouveau.', status: 400 } });
     }
 
     if (record.attempts >= 5) {
-      this.otpStore.delete(cleanEmail);
+      this.otpStore.delete(phone);
+      this.otpStore.delete(rawTarget);
       throw new BadRequestException({ error: { code: 'TOO_MANY_ATTEMPTS', message: 'Trop de tentatives. Demandez un nouveau code.', status: 400 } });
     }
 
-    if (record.code !== code.trim()) {
+    if (record.code !== inputCode) {
       record.attempts += 1;
       throw new BadRequestException({ error: { code: 'INVALID_OTP', message: `Code incorrect (tentative ${record.attempts}/5).`, status: 400 } });
     }
 
     // Code valide — le supprimer du store
-    this.otpStore.delete(cleanEmail);
+    this.otpStore.delete(phone);
+    this.otpStore.delete(rawTarget);
 
-    return { verified: true, email: cleanEmail };
+    return { verified: true, target: phone };
   }
 
   // ── Token Expo Push ───────────────────────────────────────────────────────

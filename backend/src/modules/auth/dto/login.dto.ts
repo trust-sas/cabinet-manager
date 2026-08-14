@@ -7,11 +7,24 @@
  * détail — le contrôleur/service n'a donc jamais à re-vérifier ces règles.
  * ---------------------------------------------------------------------------
  */
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class LoginDto {
+  /* Authentification par email mise en commentaire / optionnelle
   @IsEmail({}, { message: "L'adresse email fournie n'est pas valide." })
   email: string;
+  */
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  telephone?: string;
+
+  @IsOptional()
+  @IsString()
+  identifiant?: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Le mot de passe est obligatoire.' })

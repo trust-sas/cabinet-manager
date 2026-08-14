@@ -5,7 +5,7 @@
  * Inclus : Édition du dossier, gestion des audiences, upload (PDF, Word, Excel, Photo, Scan),
  * APERÇU INTERACTIF RÉEL DE DOCUMENT (Lecteur PDF, Word, Tableur Excel, Image) ET TÉLÉCHARGEMENT.
  */
-import { extractErrorMessage } from '@/lib/api';
+import { extractErrorMessage, formatPhoneWithCountryCode } from '@/lib/api';
 import { AppColors as C } from '@/constants/theme';
 import { useAudiences } from '@/hooks/useAudiences';
 import { useDossier } from '@/hooks/useDossiers';
@@ -24,7 +24,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   AlertCircle, ArrowLeft, Calendar, Camera, CheckCircle2, ChevronLeft, ChevronRight, Clock,
   DollarSign, Download, ExternalLink, Eye, FileSpreadsheet, FileText, Globe,
-  Image as ImageIcon, Lock, Paperclip, Pencil, Plus, RefreshCw, Scan, Share2,
+  Image as ImageIcon, Lock, Paperclip, Pencil, Phone, Plus, RefreshCw, Scan, Share2,
   ShieldAlert, Trash2, Upload, X, UserPlus, Send, Key, Mail,
 } from 'lucide-react-native';
 import { useState } from 'react';
@@ -127,15 +127,15 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
   const { user } = useAuth();
 
   // State Invitation au Dossier
-  const [inviteEmail, setInviteEmail]       = useState('');
+  const [invitePhone, setInvitePhone]       = useState('');
   const [invitePassword, setInvitePassword] = useState('');
   const [sendingInvite, setSendingInvite]   = useState(false);
 
   const handleSendInvitation = async () => {
-    const email = inviteEmail.trim().toLowerCase();
+    const tel = formatPhoneWithCountryCode(invitePhone);
     const pass = invitePassword.trim();
-    if (!email) {
-      Alert.alert('Champ requis', 'Veuillez saisir l\'adresse email du destinataire.');
+    if (!tel) {
+      Alert.alert('Champ requis', 'Veuillez saisir le numéro de téléphone du destinataire.');
       return;
     }
     if (!pass) {
@@ -147,15 +147,15 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
     try {
       await envoyerInvitationDossierApi({
         dossierId,
-        destinataireEmail: email,
+        destinataireTelephone: tel,
         motDePasse: pass,
       });
 
-      setInviteEmail('');
+      setInvitePhone('');
       setInvitePassword('');
       Alert.alert(
         '✅ Invitation transmise !',
-        `L'invitation au dossier ${dossier?.numeroAffaire} a été créée en base de données et envoyée dans les notifications 🔔 de ${email}.`,
+        `L'invitation au dossier ${dossier?.numeroAffaire} a été envoyée dans les notifications 🔔 de ${tel}.`,
       );
     } catch (e: any) {
       Alert.alert('❌ Échec de l\'invitation', extractErrorMessage(e));
@@ -779,17 +779,17 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
             <View style={{ gap: 14, marginTop: 8 }}>
               <View>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray400, marginBottom: 6 }}>
-                  Adresse Email de la personne à inviter *
+                  Numéro de téléphone de la personne à inviter *
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.gray800, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.gray700 }}>
-                  <Mail color={C.amber500} size={18} />
+                  <Phone color={C.amber500} size={18} />
                   <TextInput
                     style={{ flex: 1, height: 46, color: C.white, fontSize: 14 }}
-                    value={inviteEmail}
-                    onChangeText={setInviteEmail}
-                    placeholder="ex: confrere@cabinet.cm"
+                    value={invitePhone}
+                    onChangeText={setInvitePhone}
+                    placeholder="ex: 6XX XX XX XX"
                     placeholderTextColor={C.gray500}
-                    keyboardType="email-address"
+                    keyboardType="phone-pad"
                     autoCapitalize="none"
                   />
                 </View>
@@ -816,10 +816,10 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                 style={{
                   flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
                   backgroundColor: C.amber500, borderRadius: 14, paddingVertical: 14, marginTop: 10,
-                  opacity: (sendingInvite || !inviteEmail.trim() || !invitePassword.trim()) ? 0.6 : 1,
+                  opacity: (sendingInvite || !invitePhone.trim() || !invitePassword.trim()) ? 0.6 : 1,
                 }}
                 onPress={handleSendInvitation}
-                disabled={sendingInvite || !inviteEmail.trim() || !invitePassword.trim()}
+                disabled={sendingInvite || !invitePhone.trim() || !invitePassword.trim()}
                 activeOpacity={0.85}
               >
                 {sendingInvite ? (

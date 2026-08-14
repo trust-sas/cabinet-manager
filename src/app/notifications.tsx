@@ -290,20 +290,28 @@ export default function NotificationsScreen() {
               dossierTitre: notif.message,
               juridiction: 'Tribunal',
               inviteurNom: 'Avocat confrère',
-              inviteurEmail: '',
-              destinataireEmail: '',
+              inviteurTelephone: '',
+              inviteurEmail: undefined,
+              destinataireTelephone: '',
+              destinataireEmail: undefined,
               statut: 'en_attente' as const,
               createdAt: (notif as any).createdAt || new Date().toISOString(),
             } : undefined
           );
           const perm = (notif as AppNotification).permissionData;
 
+          const isInvNotif = Boolean(inv || notif.type === 'invitation' || notif.titre.toLowerCase().includes('invitation'));
+
           return (
             <SwipeableCard onDelete={() => handleDeleteNotif(notif)}>
               <TouchableOpacity
                 style={[s.card, !notif.lu && s.cardUnread]}
-                activeOpacity={inv ? 0.88 : 1}
-                onPress={() => { if (inv) setSelectedInvModal(inv); }}
+                activeOpacity={isInvNotif ? 0.88 : 1}
+                onPress={() => {
+                  if (isInvNotif) {
+                    router.push('/invitations-mail');
+                  }
+                }}
               >
                 {/* Bouton × fermer — positionné en haut à droite */}
                 <TouchableOpacity
@@ -312,7 +320,7 @@ export default function NotificationsScreen() {
                   activeOpacity={0.7}
                   hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
                 >
-                  <X color={C.gray400} size={14} />
+                  <X color={C.gray500} size={11} />
                 </TouchableOpacity>
 
               <View style={s.cardContent}>
@@ -331,78 +339,22 @@ export default function NotificationsScreen() {
 
                   <Text style={s.notifMsg}>{notif.message}</Text>
 
-                  {/* CARTE INVITATION → Appuyer pour ouvrir le pop-up */}
-                  {inv && (() => {
-                    const expiresAt = inv.createdAt ? new Date(new Date(inv.createdAt).getTime() + 7 * 86400000) : null;
-                    const joursRestants = expiresAt ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400000)) : null;
-                    return (
-                      <View style={s.invitationBox}>
-                        <Text style={s.invDossierTitle}>📁 {inv.dossierNumero} — {inv.dossierTitre}</Text>
-                        <Text style={s.invSender}>Invité par : {inv.inviteurNom}</Text>
-
-                        {inv.statut === 'en_attente' ? (
-                          <View style={{ marginTop: 8 }}>
-                            <View style={s.actionBtnRow}>
-                              <TouchableOpacity
-                                style={s.acceptBtn}
-                                onPress={(e) => {
-                                  e.stopPropagation?.();
-                                  handleResponseInvitation(inv, true);
-                                }}
-                                activeOpacity={0.85}
-                              >
-                                <UserCheck color={C.white} size={15} />
-                                <Text style={s.acceptBtnText}>Accepter</Text>
-                              </TouchableOpacity>
-
-                              <TouchableOpacity
-                                style={s.refuseBtn}
-                                onPress={(e) => {
-                                  e.stopPropagation?.();
-                                  handleResponseInvitation(inv, false);
-                                }}
-                                activeOpacity={0.85}
-                              >
-                                <UserX color={C.white} size={15} />
-                                <Text style={s.refuseBtnText}>Refuser</Text>
-                              </TouchableOpacity>
-                            </View>
-
-                            <TouchableOpacity
-                              style={s.tapHintRow}
-                              onPress={(e) => {
-                                e.stopPropagation?.();
-                                setSelectedInvModal(inv);
-                              }}
-                              activeOpacity={0.85}
-                            >
-                              <Mail color={C.amber600} size={13} />
-                              <Text style={s.tapHintText}>Voir les détails complets (Pop-up) →</Text>
-                            </TouchableOpacity>
-
-                            {joursRestants !== null && (
-                              <View style={s.expiryRow}>
-                                <Clock color={joursRestants <= 1 ? C.red600 : C.gray400} size={11} />
-                                <Text style={[s.expiryText, joursRestants <= 1 && { color: C.red600, fontWeight: '700' }]}>
-                                  {joursRestants === 0
-                                    ? 'Expire aujourd’hui'
-                                    : joursRestants === 1
-                                    ? 'Expire demain'
-                                    : `Expire dans ${joursRestants} jours`}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        ) : (
-                          <View style={s.statusTag}>
-                            <Text style={[s.statusTagText, inv.statut === 'acceptee' ? { color: C.green700 } : { color: C.red700 }]}>
-                              {inv.statut === 'acceptee' ? '✓ Acceptée — dossier rattaché' : '✕ Refusée'}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
+                  {/* ALERTE INVITATION → Appuyer pour ouvrir le mail d'invitation */}
+                  {isInvNotif && (
+                    <View style={s.invitationBox}>
+                      <TouchableOpacity
+                        style={s.tapHintRow}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          router.push('/invitations-mail');
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Mail color={C.amber600} size={14} />
+                        <Text style={s.tapHintText}>✉️ Voir le mail d'invitation dans la Boîte de Réception →</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* PERMISSION CONSULTATION */}
                   {perm && (
@@ -619,17 +571,17 @@ const s = StyleSheet.create({
   notifDate: { fontSize: 11, color: C.gray400 },
   closeCross: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 8,
+    right: 8,
     zIndex: 99,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: C.gray100,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: C.gray300,
+    borderColor: C.gray200,
   },
   deleteBtn: { padding: 4, borderRadius: 6 },
   unreadDot: { position: 'absolute', top: 10, right: 38, width: 8, height: 8, borderRadius: 4, backgroundColor: C.amber500 },

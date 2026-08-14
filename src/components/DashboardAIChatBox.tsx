@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Brain, Send, Sparkles, ExternalLink, RefreshCw, CheckCircle2 } from 'lucide-react-native';
 import { AppColors as C } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
 import api, { extractErrorMessage } from '@/lib/api';
 import { useRouter } from 'expo-router';
 
@@ -29,6 +30,7 @@ const PRESET_PROMPTS = [
 
 export function DashboardAIChatBox() {
   const router = useRouter();
+  const { colors: K, isDark } = useTheme();
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<string | null>(null);
@@ -54,25 +56,25 @@ export function DashboardAIChatBox() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: K.surface, borderColor: K.border }]}>
       {/* En-tête de la boîte IA */}
       <View style={styles.header}>
         <View style={styles.headerTitleWrap}>
-          <View style={styles.aiBadge}>
-            <Brain color={C.amber400} size={18} />
+          <View style={[styles.aiBadge, { backgroundColor: K.primaryLight }]}>
+            <Brain color={K.primary} size={18} />
           </View>
           <View>
-            <Text style={styles.title}>Assistant IA Juridique</Text>
-            <Text style={styles.subtitle}>En ligne (Google Gemini + 7 156 Lois)</Text>
+            <Text style={[styles.title, { color: K.text }]}>Assistant IA Juridique</Text>
+            <Text style={[styles.subtitle, { color: K.textMuted }]}>En ligne (Google Gemini + 7 156 Lois)</Text>
           </View>
         </View>
         <TouchableOpacity
-          style={styles.expandBtn}
+          style={[styles.expandBtn, { backgroundColor: K.bgTertiary }]}
           onPress={() => router.push('/assistant-ia')}
           activeOpacity={0.8}
         >
-          <Text style={styles.expandText}>Plein écran</Text>
-          <ExternalLink color={C.amber400} size={14} />
+          <Text style={[styles.expandText, { color: K.primary }]}>Plein écran</Text>
+          <ExternalLink color={K.primary} size={14} />
         </TouchableOpacity>
       </View>
 
@@ -85,58 +87,58 @@ export function DashboardAIChatBox() {
         {PRESET_PROMPTS.map((p, i) => (
           <TouchableOpacity
             key={i}
-            style={styles.chip}
+            style={[styles.chip, { backgroundColor: K.bgTertiary, borderColor: K.border }]}
             onPress={() => handleSend(p)}
             activeOpacity={0.8}
           >
-            <Sparkles color={C.amber400} size={12} />
-            <Text style={styles.chipText}>{p}</Text>
+            <Sparkles color={K.primary} size={12} />
+            <Text style={[styles.chipText, { color: K.textSecondary }]}>{p}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
       {/* Zone de réponse de l'IA */}
       {loading ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator color={C.amber400} size="small" />
-          <Text style={styles.loadingText}>Consultation de Google Gemini & des textes de lois...</Text>
+        <View style={[styles.loadingBox, { backgroundColor: K.bgSecondary }]}>
+          <ActivityIndicator color={K.primary} size="small" />
+          <Text style={[styles.loadingText, { color: K.primary }]}>Consultation de Google Gemini & des textes de lois...</Text>
         </View>
       ) : response ? (
-        <View style={styles.responseBox}>
-          <View style={styles.responseHeader}>
-            <CheckCircle2 color={C.green500} size={14} />
-            <Text style={styles.lastQuestionText} numberOfLines={1}>
+        <View style={[styles.responseBox, { backgroundColor: K.bgSecondary, borderColor: K.border }]}>
+          <View style={[styles.responseHeader, { borderBottomColor: K.border }]}>
+            <CheckCircle2 color={K.success} size={14} />
+            <Text style={[styles.lastQuestionText, { color: K.textMuted }]} numberOfLines={1}>
               Q: "{lastQuestion}"
             </Text>
             <TouchableOpacity onPress={() => setResponse(null)} style={styles.resetBtn}>
-              <RefreshCw color={C.gray400} size={12} />
+              <RefreshCw color={K.textMuted} size={12} />
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.responseScroll} nestedScrollEnabled>
-            <Text style={styles.responseText}>{response}</Text>
+            <Text style={[styles.responseText, { color: K.text }]}>{response}</Text>
           </ScrollView>
         </View>
       ) : null}
 
       {/* Champ de saisie & Bouton d'envoi */}
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, { backgroundColor: K.inputBg, borderColor: K.border }]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: K.inputText }]}
           value={prompt}
           onChangeText={setPrompt}
           placeholder="Posez une question juridique au cabinet..."
-          placeholderTextColor={C.gray500}
+          placeholderTextColor={K.textMuted}
           multiline={false}
           onSubmitEditing={() => handleSend()}
           returnKeyType="send"
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!prompt.trim() || loading) && styles.sendBtnDisabled]}
+          style={[styles.sendBtn, { backgroundColor: K.primary }, (!prompt.trim() || loading) && styles.sendBtnDisabled]}
           onPress={() => handleSend()}
           disabled={!prompt.trim() || loading}
           activeOpacity={0.8}
         >
-          <Send color={C.gray900} size={16} />
+          <Send color={isDark ? C.gray900 : '#ffffff'} size={16} />
         </TouchableOpacity>
       </View>
     </View>

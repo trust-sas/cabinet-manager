@@ -61,8 +61,9 @@ export class FacturationService {
   }
 
   async findAllFactures(query: QueryFacturesDto, user: AuthenticatedUser): Promise<ResultatPagine<Facture>> {
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
     const qb = this.factureRepo.createQueryBuilder('f')
-      .where('f.cabinetId = :cabinetId', { cabinetId: user.cabinetId })
+      .where('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
       .andWhere('f.deletedAt IS NULL');
 
     if (query.dossierId) qb.andWhere('f.dossierId = :dossierId', { dossierId: query.dossierId });

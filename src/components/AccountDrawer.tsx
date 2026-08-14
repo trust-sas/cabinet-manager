@@ -97,6 +97,7 @@ export function AccountDrawer({ visible, onClose }: AccountDrawerProps) {
   React.useEffect(() => {
     if (user) {
       setNom(user.nom || '');
+      setTelephone((user as any)?.telephone || '');
     }
   }, [user]);
 

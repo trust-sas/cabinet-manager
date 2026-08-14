@@ -27,7 +27,7 @@ export class ClientsController {
   @RequirePermission('clients', 'read')
   @Get()
   async findAll(@Query() query: QueryClientsDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.findAll(query, user.cabinetId);
+    return this.clientsService.findAll(query, user.cabinetId, user.email);
   }
 
   @RequirePermission('clients', 'read')

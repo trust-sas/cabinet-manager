@@ -17,12 +17,12 @@ import {
   getNotifications, marquerNotificationCommeLue, marquerToutesNotificationsCommeLues,
   NotificationItem,
 } from '@/services/notifications.service';
-import { getUnreadBadgeCount, hasDossierAccess, hasAudienceAccess } from '@/services/dossierInvitations.service';
+import { getUnreadBadgeCount, chargerDonneesInvitationsPersistantes, hasDossierAccess, hasAudienceAccess } from '@/services/dossierInvitations.service';
 import { useRouter } from 'expo-router';
 import {
   AlertTriangle, ArrowUpRight, BarChart3, Bell, Brain, Briefcase,
   Calendar as CalendarIcon, CheckCheck, CheckCircle2, Clock, DollarSign, FileText,
-  Info, LayoutDashboard, LogOut, Plus, Receipt, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X, Zap,
+  Info, LayoutDashboard, LogOut, Mail, Plus, Receipt, ShieldCheck, Sparkles, Trash2, TrendingUp, Users, X, Zap,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { extractErrorMessage } from '@/lib/api';
@@ -35,6 +35,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccountDrawer } from '@/components/AccountDrawer';
 import { DashboardAIChatBox } from '@/components/DashboardAIChatBox';
 import { usePreferences } from '@/context/PreferencesContext';
+import { useTheme } from '@/hooks/useTheme';
 
 type DashboardTab = 'overview' | 'agenda' | 'facturation';
 
@@ -53,16 +54,21 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { isDark } = usePreferences();
+  const { colors: K } = useTheme();
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+
+  const heure = new Date().getHours();
+  const salutation = heure < 12 ? 'Bonjour' : heure < 18 ? 'Bon après-midi' : 'Bonsoir';
 
   // Modal Dragger Compte & Thème & Notifications
   const [showDrawer, setShowDrawer] = useState(false);
 
   // Modal Pop-up Notifications
-  const [showNotifPopUp, setShowNotifPopUp] = useState(false);
-  const [notifs, setNotifs]                 = useState<NotificationItem[]>([]);
-  const [nonLues, setNonLues]               = useState(0);
-  const [loadingNotifs, setLoadingNotifs]   = useState(false);
+  const [showNotifPopUp, setShowNotifPopUp]     = useState(false);
+  const [notifs, setNotifs]                     = useState<NotificationItem[]>([]);
+  const [nonLues, setNonLues]                   = useState(0);
+  const [pendingInvsCount, setPendingInvsCount] = useState(0);
+  const [loadingNotifs, setLoadingNotifs]         = useState(false);
 
   // Backend Data Hooks
   const { dossiers }  = useDossiers({ pageSize: 50 });
@@ -85,15 +91,19 @@ export default function DashboardScreen() {
   const fetchNotifs = useCallback(async () => {
     setLoadingNotifs(true);
     try {
-      const res = await getNotifications().catch(() => ({ data: [], nonLuesCount: 0 }));
-      const customBadgeCount = getUnreadBadgeCount(user?.email);
-      const totalUnread = customBadgeCount + (res.nonLuesCount || 0);
+      const [res, invs] = await Promise.all([
+        getNotifications().catch(() => ({ data: [], nonLuesCount: 0 })),
+        chargerDonneesInvitationsPersistantes().catch(() => []),
+      ]);
+
+      const pendingCount = invs.filter(i => i.statut === 'en_attente').length;
+      setPendingInvsCount(pendingCount);
 
       setNotifs(res.data || []);
-      setNonLues(totalUnread);
+      setNonLues(res.nonLuesCount || 0);
     } catch (e: any) {
       setNotifs([]);
-      setNonLues(getUnreadBadgeCount(user?.email));
+      setNonLues(0);
     } finally {
       setLoadingNotifs(false);
     }
@@ -187,7 +197,7 @@ export default function DashboardScreen() {
   };
 
   // Filtrage strict des données réservées à l'utilisateur
-  const userDossiers  = dossiers.filter(d => hasDossierAccess(Number(d.id)));
+  const userDossiers  = dossiers.filter(d => hasDossierAccess(d, user?.id));
   const userAudiences = audiences.filter(a => hasAudienceAccess(Number(a.id), a.dossierId ? Number(a.dossierId) : undefined));
   const userFactures  = factures.filter(f => !f.dossierId || hasDossierAccess(Number(f.dossierId)));
 
@@ -219,49 +229,53 @@ export default function DashboardScreen() {
     .slice(0, 4);
 
   return (
-    <View style={[s.root, { backgroundColor: isDark ? C.gray900 : C.gray100 }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.navy900} />
-      <SafeAreaView style={s.safe} edges={['top']}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+    <View style={[s.root, { backgroundColor: K.bg }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={K.bgSecondary} />
+      <SafeAreaView style={[s.safe, { backgroundColor: K.bgSecondary }]} edges={['top']}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 100, backgroundColor: K.bg }}
+          style={{ backgroundColor: K.bg }}
+        >
 
-          {/* ── En-tête Executive avec Avatar & Nom Avocat (Ouvre le Dragger) ── */}
-          <View style={s.header}>
+          {/* ── En-tête Executive Premium ── */}
+          <View style={[s.header, { backgroundColor: K.bgSecondary }]}>
             <TouchableOpacity
               style={s.headerProfileTouch}
               onPress={() => setShowDrawer(true)}
               activeOpacity={0.8}
             >
-              <View style={s.avatarCircle}>
-                <Text style={s.avatarText}>{initials(user?.nom || 'Avocat')}</Text>
+              <View style={[s.avatarCircle, { backgroundColor: K.primary }]}>
+                <Text style={[s.avatarText, { color: isDark ? C.gray900 : '#ffffff' }]}>{initials(user?.nom || 'Avocat')}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.headerGreeting}>Cabinet d'Avocats</Text>
-                <Text style={s.headerTitle}>{user ? user.nom : 'Maître Avocat'}</Text>
-                <View style={s.roleBadge}>
-                  <ShieldCheck color={C.amber400} size={12} />
-                  <Text style={s.roleBadgeText}>{user?.role || 'Avocat'} — Mon Compte ⚙️</Text>
+                <Text style={[s.headerGreeting, { color: K.textMuted }]}>{salutation}, Maître 👋</Text>
+                <Text style={[s.headerTitle, { color: K.text }]}>{user ? user.nom : 'Maître Avocat'}</Text>
+                <View style={[s.roleBadge, { backgroundColor: K.bgTertiary }]}>
+                  <ShieldCheck color={K.primary} size={12} />
+                  <Text style={[s.roleBadgeText, { color: K.primary }]}>{user?.role || 'Avocat'} — Mon Compte ⚙️</Text>
                 </View>
               </View>
             </TouchableOpacity>
 
             <View style={s.headerRight}>
-              {/* 🔔 Icône Cloche Notifications Pop-up */}
+              {/* ✉️ Icône Enveloppe Mail Invitations & Demandes de permission */}
               <TouchableOpacity
-                style={s.bellBtn}
-                onPress={() => { fetchNotifs(); setShowNotifPopUp(true); }}
+                style={[s.bellBtn, { backgroundColor: K.bgTertiary }]}
+                onPress={() => router.push('/invitations-mail')}
                 activeOpacity={0.8}
               >
-                <Bell color={C.white} size={20} />
-                {nonLues > 0 && (
+                <Mail color={K.primary} size={20} />
+                {pendingInvsCount > 0 && (
                   <View style={s.badge}>
-                    <Text style={s.badgeText}>{nonLues > 9 ? '9+' : nonLues}</Text>
+                    <Text style={s.badgeText}>{pendingInvsCount > 9 ? '9+' : pendingInvsCount}</Text>
                   </View>
                 )}
               </TouchableOpacity>
 
               {/* Bouton Déconnexion */}
-              <TouchableOpacity style={s.logoutBtn} onPress={logout} activeOpacity={0.8}>
-                <LogOut color={C.red400} size={18} />
+              <TouchableOpacity style={[s.logoutBtn, { backgroundColor: K.bgTertiary }]} onPress={logout} activeOpacity={0.8}>
+                <LogOut color={K.danger} size={18} />
               </TouchableOpacity>
             </View>
           </View>
@@ -272,18 +286,22 @@ export default function DashboardScreen() {
           </View>
 
           {/* ── Navigation par Onglets Dashboard ── */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.dashTabsRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[s.dashTabsRow, { backgroundColor: K.bgSecondary }]}>
             {DASHBOARD_TABS.map(tab => {
               const active = activeTab === tab.id;
               return (
                 <TouchableOpacity
                   key={tab.id}
                   onPress={() => setActiveTab(tab.id)}
-                  style={[s.dashTabBtn, active && s.dashTabBtnActive]}
+                  style={[
+                    s.dashTabBtn,
+                    { backgroundColor: K.bgTertiary, borderColor: K.border },
+                    active && { backgroundColor: K.primary, borderColor: K.primary }
+                  ]}
                   activeOpacity={0.8}
                 >
-                  <tab.Icon color={active ? C.gray900 : C.gray400} size={14} />
-                  <Text style={[s.dashTabText, active && s.dashTabTextActive]}>
+                  <tab.Icon color={active ? (isDark ? C.gray900 : '#ffffff') : K.textMuted} size={14} />
+                  <Text style={[s.dashTabText, { color: K.textMuted }, active && { color: isDark ? C.gray900 : '#ffffff', fontWeight: '700' }]}>
                     {tab.label}
                   </Text>
                 </TouchableOpacity>
@@ -297,27 +315,27 @@ export default function DashboardScreen() {
 
               {/* Cartes KPIs Réelles */}
               <View style={s.kpiGrid}>
-                <View style={[s.kpiCard, { borderLeftColor: C.amber500 }]}>
-                  <View style={s.kpiIconWrap}><Briefcase color={C.amber600} size={20} /></View>
-                  <Text style={s.kpiVal}>{affairesActives}</Text>
-                  <Text style={s.kpiLabel}>Affaires en cours</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.amber500 }]}>
+                  <View style={[s.kpiIconWrap, { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : C.amber50 }]}><Briefcase color={C.amber600} size={20} /></View>
+                  <Text style={[s.kpiVal, { color: K.text }]}>{affairesActives}</Text>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Affaires en cours</Text>
                 </View>
 
-                <View style={[s.kpiCard, { borderLeftColor: C.blue500 }]}>
-                  <View style={[s.kpiIconWrap, { backgroundColor: C.blue50 }]}><CalendarIcon color={C.blue600} size={20} /></View>
-                  <Text style={s.kpiVal}>{userAudiences.length}</Text>
-                  <Text style={s.kpiLabel}>Audiences</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.blue500 }]}>
+                  <View style={[s.kpiIconWrap, { backgroundColor: isDark ? 'rgba(59,130,246,0.2)' : C.blue50 }]}><CalendarIcon color={C.blue600} size={20} /></View>
+                  <Text style={[s.kpiVal, { color: K.text }]}>{userAudiences.length}</Text>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Audiences</Text>
                 </View>
 
-                <View style={[s.kpiCard, { borderLeftColor: C.green500 }]}>
-                  <View style={[s.kpiIconWrap, { backgroundColor: C.green50 }]}><CheckCircle2 color={C.green600} size={20} /></View>
-                  <Text style={s.kpiVal}>{affairesCloturees}</Text>
-                  <Text style={s.kpiLabel}>Clôturées</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.green500 }]}>
+                  <View style={[s.kpiIconWrap, { backgroundColor: isDark ? 'rgba(34,197,94,0.2)' : C.green50 }]}><CheckCircle2 color={C.green600} size={20} /></View>
+                  <Text style={[s.kpiVal, { color: K.text }]}>{affairesCloturees}</Text>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Clôturées</Text>
                 </View>
               </View>
 
               {/* 🔔 BLOC RAPPELS & NOTIFICATIONS IMPORTANTES */}
-              <Text style={s.sectionTitle}>Rappels & Notifications</Text>
+              <Text style={[s.sectionTitle, { color: K.text }]}>Rappels & Notifications</Text>
               <View style={{ gap: 8 }}>
                 {facturesRetard.length > 0 && (
                   <TouchableOpacity
@@ -347,81 +365,81 @@ export default function DashboardScreen() {
               </View>
 
               {/* Actions Rapides Métier */}
-              <Text style={s.sectionTitle}>Actions rapides</Text>
+              <Text style={[s.sectionTitle, { color: K.text }]}>Actions rapides</Text>
               <View style={s.quickActionsGrid}>
                 <TouchableOpacity
-                  style={s.actionCard}
+                  style={[s.actionCard, { backgroundColor: K.surface, borderColor: K.border }]}
                   onPress={() => router.push('/affaires')}
                   activeOpacity={0.8}
                 >
-                  <View style={[s.actionIcon, { backgroundColor: C.amber100 }]}><Plus color={C.amber900} size={20} /></View>
-                  <Text style={s.actionTitle}>Nouveau Dossier</Text>
-                  <Text style={s.actionSub}>Ouvrir une affaire</Text>
+                  <View style={[s.actionIcon, { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : C.amber100 }]}><Plus color={isDark ? C.amber400 : C.amber900} size={20} /></View>
+                  <Text style={[s.actionTitle, { color: K.text }]}>Nouveau Dossier</Text>
+                  <Text style={[s.actionSub, { color: K.textMuted }]}>Ouvrir une affaire</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={s.actionCard}
+                  style={[s.actionCard, { backgroundColor: K.surface, borderColor: K.border }]}
                   onPress={() => router.push('/facturation')}
                   activeOpacity={0.8}
                 >
-                  <View style={[s.actionIcon, { backgroundColor: C.green100 }]}><Receipt color={C.green700} size={20} /></View>
-                  <Text style={s.actionTitle}>Créer Facture</Text>
-                  <Text style={s.actionSub}>Honoraires client</Text>
+                  <View style={[s.actionIcon, { backgroundColor: isDark ? 'rgba(34,197,94,0.2)' : C.green100 }]}><Receipt color={isDark ? C.green400 : C.green700} size={20} /></View>
+                  <Text style={[s.actionTitle, { color: K.text }]}>Créer Facture</Text>
+                  <Text style={[s.actionSub, { color: K.textMuted }]}>Honoraires client</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={s.actionCard}
+                  style={[s.actionCard, { backgroundColor: K.surface, borderColor: K.border }]}
                   onPress={() => router.push('/audiences')}
                   activeOpacity={0.8}
                 >
-                  <View style={[s.actionIcon, { backgroundColor: C.purple100 }]}><CalendarIcon color={C.purple600} size={20} /></View>
-                  <Text style={s.actionTitle}>Calendrier</Text>
-                  <Text style={s.actionSub}>Agenda & audiences</Text>
+                  <View style={[s.actionIcon, { backgroundColor: isDark ? 'rgba(147,51,234,0.2)' : C.purple100 }]}><CalendarIcon color={isDark ? '#c084fc' : C.purple600} size={20} /></View>
+                  <Text style={[s.actionTitle, { color: K.text }]}>Calendrier</Text>
+                  <Text style={[s.actionSub, { color: K.textMuted }]}>Agenda & audiences</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={s.actionCard}
+                  style={[s.actionCard, { backgroundColor: K.surface, borderColor: K.border }]}
                   onPress={() => router.push('/clients')}
                   activeOpacity={0.8}
                 >
-                  <View style={[s.actionIcon, { backgroundColor: C.blue100 }]}><Users color={C.blue700} size={20} /></View>
-                  <Text style={s.actionTitle}>Fiche Client</Text>
-                  <Text style={s.actionSub}>Répertoire contacts</Text>
+                  <View style={[s.actionIcon, { backgroundColor: isDark ? 'rgba(59,130,246,0.2)' : C.blue100 }]}><Users color={isDark ? C.blue400 : C.blue700} size={20} /></View>
+                  <Text style={[s.actionTitle, { color: K.text }]}>Fiche Client</Text>
+                  <Text style={[s.actionSub, { color: K.textMuted }]}>Répertoire contacts</Text>
                 </TouchableOpacity>
               </View>
 
               {/* Dernières Affaires Actives */}
               <View style={s.sectionHeader}>
-                <Text style={s.sectionTitle}>Dossiers récents</Text>
+                <Text style={[s.sectionTitle, { color: K.text }]}>Dossiers récents</Text>
                 <TouchableOpacity onPress={() => router.push('/affaires')}>
                   <Text style={s.seeAllText}>Voir tout</Text>
                 </TouchableOpacity>
               </View>
 
               {affairesRecentes.length === 0 ? (
-                <View style={s.emptyCard}>
-                  <FileText color={C.gray400} size={32} />
-                  <Text style={s.emptyText}>Aucun dossier actif pour le moment</Text>
+                <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
+                  <FileText color={K.textMuted} size={32} />
+                  <Text style={[s.emptyText, { color: K.textMuted }]}>Aucun dossier actif pour le moment</Text>
                 </View>
               ) : (
                 affairesRecentes.map(d => (
                   <TouchableOpacity
                     key={d.id}
-                    style={s.dossierRowCard}
+                    style={[s.dossierRowCard, { backgroundColor: K.surface, borderColor: K.border }]}
                     onPress={() => router.push({ pathname: '/affaire/[id]', params: { id: d.id } })}
                     activeOpacity={0.85}
                   >
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                         <Text style={s.dossierNum}>{d.numeroAffaire}</Text>
-                        <View style={[s.statusPill, d.statut === 'Ouvert' ? { backgroundColor: C.blue100 } : { backgroundColor: C.orange100 }]}>
-                          <Text style={[s.statusPillText, d.statut === 'Ouvert' ? { color: C.blue700 } : { color: C.orange700 }]}>{d.statut}</Text>
+                        <View style={[s.statusPill, d.statut === 'Ouvert' ? { backgroundColor: isDark ? 'rgba(59,130,246,0.2)' : C.blue100 } : { backgroundColor: isDark ? 'rgba(249,115,22,0.2)' : C.orange100 }]}>
+                          <Text style={[s.statusPillText, d.statut === 'Ouvert' ? { color: isDark ? C.blue400 : C.blue700 } : { color: isDark ? '#fb923c' : C.orange700 }]}>{d.statut}</Text>
                         </View>
                       </View>
-                      <Text style={s.dossierTitle} numberOfLines={1}>{d.titre}</Text>
-                      {d.juridiction && <Text style={s.dossierJur}>{d.juridiction}</Text>}
+                      <Text style={[s.dossierTitle, { color: K.text }]} numberOfLines={1}>{d.titre}</Text>
+                      {d.juridiction && <Text style={[s.dossierJur, { color: K.textMuted }]}>{d.juridiction}</Text>}
                     </View>
-                    <ArrowUpRight color={C.gray400} size={18} />
+                    <ArrowUpRight color={K.textMuted} size={18} />
                   </TouchableOpacity>
                 ))
               )}
@@ -431,11 +449,11 @@ export default function DashboardScreen() {
           {/* ── TAB 2 : CALENDRIER JOURNALIER (DONNÉES RÉELLES) ── */}
           {activeTab === 'agenda' && (
             <View style={s.tabContent}>
-              <View style={s.agendaHeaderBox}>
+              <View style={[s.agendaHeaderBox, { backgroundColor: K.surface, borderColor: K.border }]}>
                 <CalendarIcon color={C.amber600} size={20} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.agendaHeaderTitle}>Calendrier Journalier</Text>
-                  <Text style={s.agendaHeaderSub}>Événements et audiences prévus pour aujourd'hui</Text>
+                  <Text style={[s.agendaHeaderTitle, { color: K.text }]}>Calendrier Journalier</Text>
+                  <Text style={[s.agendaHeaderSub, { color: K.textMuted }]}>Événements et audiences prévus pour aujourd'hui</Text>
                 </View>
                 <TouchableOpacity style={s.agendaAddBtn} onPress={() => router.push('/audiences')}>
                   <Plus color={C.gray900} size={14} />
@@ -445,9 +463,9 @@ export default function DashboardScreen() {
 
               {/* Données réelles des événements d'aujourd'hui */}
               {todayAudiences.length === 0 ? (
-                <View style={s.emptyCard}>
-                  <CalendarIcon color={C.gray400} size={36} />
-                  <Text style={s.emptyText}>Aucune audience ou rendez-vous prévu aujourd'hui</Text>
+                <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
+                  <CalendarIcon color={K.textMuted} size={36} />
+                  <Text style={[s.emptyText, { color: K.textMuted }]}>Aucune audience ou rendez-vous prévu aujourd'hui</Text>
                   <TouchableOpacity style={s.agendaAddBtn} onPress={() => router.push('/audiences')}>
                     <Plus color={C.gray900} size={14} />
                     <Text style={s.agendaAddBtnText}>Planifier un événement</Text>
@@ -458,21 +476,21 @@ export default function DashboardScreen() {
                   {todayAudiences.map((aud) => {
                     const timeStr = aud.heure || '09:00';
                     const isTenue = aud.statut === 'tenue';
-                    const cardBg = isTenue ? C.green50 : C.amber50;
+                    const cardBg = isTenue ? (isDark ? 'rgba(34,197,94,0.1)' : C.green50) : (isDark ? 'rgba(245,158,11,0.1)' : C.amber50);
                     const cardColor = isTenue ? C.green600 : C.amber600;
                     return (
                       <View key={String(aud.id)} style={s.timeSlotRow}>
                         <View style={s.timeSlotTimeWrap}>
-                          <Text style={s.timeSlotTime}>{timeStr}</Text>
-                          <Clock color={C.gray400} size={12} />
+                          <Text style={[s.timeSlotTime, { color: K.textSecondary }]}>{timeStr}</Text>
+                          <Clock color={K.textMuted} size={12} />
                         </View>
-                        <View style={[s.timeSlotCard, { backgroundColor: cardBg, borderLeftColor: cardColor, borderLeftWidth: 4 }]}>
+                        <View style={[s.timeSlotCard, { backgroundColor: cardBg, borderColor: K.border, borderLeftColor: cardColor, borderLeftWidth: 4 }]}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={[s.timeSlotType, { color: cardColor }]}>{aud.typeAudience || 'Audience'}</Text>
                             <Text style={{ fontSize: 10, fontWeight: '700', color: cardColor }}>{aud.statut.toUpperCase()}</Text>
                           </View>
-                          <Text style={s.timeSlotTitle}>{aud.juridiction || 'Tribunal de Grande Instance'}</Text>
-                          {aud.notes ? <Text style={{ fontSize: 11, color: C.gray600, marginTop: 2 }}>{aud.notes}</Text> : null}
+                          <Text style={[s.timeSlotTitle, { color: K.text }]}>{aud.juridiction || 'Tribunal de Grande Instance'}</Text>
+                          {aud.notes ? <Text style={{ fontSize: 11, color: K.textMuted, marginTop: 2 }}>{aud.notes}</Text> : null}
                         </View>
                       </View>
                     );
@@ -485,11 +503,11 @@ export default function DashboardScreen() {
           {/* ── TAB 3 : FACTURATION & ENCAISSEMENTS ── */}
           {activeTab === 'facturation' && (
             <View style={s.tabContent}>
-              <View style={s.agendaHeaderBox}>
+              <View style={[s.agendaHeaderBox, { backgroundColor: K.surface, borderColor: K.border }]}>
                 <Receipt color={C.green600} size={20} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.agendaHeaderTitle}>Facturation & Encaissements</Text>
-                  <Text style={s.agendaHeaderSub}>Honoraires, suivi des paiements et relances</Text>
+                  <Text style={[s.agendaHeaderTitle, { color: K.text }]}>Facturation & Encaissements</Text>
+                  <Text style={[s.agendaHeaderSub, { color: K.textMuted }]}>Honoraires, suivi des paiements et relances</Text>
                 </View>
                 <TouchableOpacity style={s.agendaAddBtn} onPress={handleOpenFactureModal} activeOpacity={0.8}>
                   <Plus color={C.gray900} size={14} />
@@ -499,32 +517,32 @@ export default function DashboardScreen() {
 
               {/* KPIs Financiers */}
               <View style={s.kpiGrid}>
-                <View style={[s.kpiCard, { borderLeftColor: C.gray900 }]}>
-                  <Text style={s.kpiLabel}>Total facturé</Text>
-                  <Text style={[s.kpiVal, { fontSize: 16 }]}>{totalFacture > 0 ? `${(totalFacture / 1_000_000).toFixed(1)}M` : '0'} FCFA</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: K.text }]}>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Total facturé</Text>
+                  <Text style={[s.kpiVal, { fontSize: 16, color: K.text }]}>{totalFacture > 0 ? `${(totalFacture / 1_000_000).toFixed(1)}M` : '0'} FCFA</Text>
                 </View>
 
-                <View style={[s.kpiCard, { borderLeftColor: C.green500 }]}>
-                  <Text style={s.kpiLabel}>Total encaissé</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.green500 }]}>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Total encaissé</Text>
                   <Text style={[s.kpiVal, { fontSize: 16, color: C.green600 }]}>{totalEncaisse > 0 ? `${(totalEncaisse / 1_000_000).toFixed(1)}M` : '0'} FCFA</Text>
                 </View>
 
-                <View style={[s.kpiCard, { borderLeftColor: C.red500 }]}>
-                  <Text style={s.kpiLabel}>Reste à percevoir</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.red500 }]}>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Reste à percevoir</Text>
                   <Text style={[s.kpiVal, { fontSize: 16, color: C.red600 }]}>{totalImpaye > 0 ? `${(totalImpaye / 1_000_000).toFixed(1)}M` : '0'} FCFA</Text>
                 </View>
 
-                <View style={[s.kpiCard, { borderLeftColor: C.amber500 }]}>
-                  <Text style={s.kpiLabel}>Taux recouvrement</Text>
+                <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.amber500 }]}>
+                  <Text style={[s.kpiLabel, { color: K.textMuted }]}>Taux recouvrement</Text>
                   <Text style={[s.kpiVal, { fontSize: 16, color: C.amber600 }]}>{tauxRecouvrement}%</Text>
                 </View>
               </View>
 
               {/* Liste des Factures */}
               {factures.length === 0 ? (
-                <View style={s.emptyCard}>
-                  <DollarSign color={C.gray400} size={36} />
-                  <Text style={s.emptyText}>Aucune facture d'honoraires enregistrée</Text>
+                <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
+                  <DollarSign color={K.textMuted} size={36} />
+                  <Text style={[s.emptyText, { color: K.textMuted }]}>Aucune facture d'honoraires enregistrée</Text>
                   <TouchableOpacity style={s.agendaAddBtn} onPress={handleOpenFactureModal} activeOpacity={0.8}>
                     <Plus color={C.gray900} size={14} />
                     <Text style={s.agendaAddBtnText}>Créer la première facture</Text>
@@ -533,12 +551,12 @@ export default function DashboardScreen() {
               ) : (
                 <View style={{ gap: 10, marginTop: 10 }}>
                   {factures.map((f) => {
-                    const statusColor = f.statut === 'payee' ? C.green600 : f.statut === 'en_retard' ? C.red600 : f.statut === 'partielle' ? C.amber600 : C.gray600;
-                    const statusBg = f.statut === 'payee' ? C.green50 : f.statut === 'en_retard' ? C.red50 : f.statut === 'partielle' ? C.amber50 : C.gray100;
+                    const statusColor = f.statut === 'payee' ? C.green600 : f.statut === 'en_retard' ? C.red600 : f.statut === 'partielle' ? C.amber600 : K.textMuted;
+                    const statusBg = f.statut === 'payee' ? (isDark ? 'rgba(34,197,94,0.15)' : C.green50) : f.statut === 'en_retard' ? (isDark ? 'rgba(239,68,68,0.15)' : C.red50) : f.statut === 'partielle' ? (isDark ? 'rgba(245,158,11,0.15)' : C.amber50) : K.bgTertiary;
                     return (
-                      <View key={String(f.id)} style={[s.timeSlotCard, { backgroundColor: C.white, borderLeftColor: statusColor, borderLeftWidth: 4 }]}>
+                      <View key={String(f.id)} style={[s.timeSlotCard, { backgroundColor: K.surface, borderColor: K.border, borderLeftColor: statusColor, borderLeftWidth: 4 }]}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={s.timeSlotTitle}>{f.numeroFacture}</Text>
+                          <Text style={[s.timeSlotTitle, { color: K.text }]}>{f.numeroFacture}</Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <View style={{ backgroundColor: statusBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>{f.statut.toUpperCase()}</Text>
@@ -548,9 +566,9 @@ export default function DashboardScreen() {
                             </TouchableOpacity>
                           </View>
                         </View>
-                        {f.description ? <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }}>{f.description}</Text> : null}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.gray100 }}>
-                          <Text style={{ fontSize: 12, color: C.gray500 }}>Montant TTC: <Text style={{ fontWeight: '700', color: C.gray900 }}>{new Intl.NumberFormat('fr-FR').format(Math.round(Number(f.montantTtc)))} FCFA</Text></Text>
+                        {f.description ? <Text style={{ fontSize: 12, color: K.textMuted, marginTop: 2 }}>{f.description}</Text> : null}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: K.border }}>
+                          <Text style={{ fontSize: 12, color: K.textMuted }}>Montant TTC: <Text style={{ fontWeight: '700', color: K.text }}>{new Intl.NumberFormat('fr-FR').format(Math.round(Number(f.montantTtc)))} FCFA</Text></Text>
                           <Text style={{ fontSize: 12, fontWeight: '700', color: statusColor }}>Solde: {new Intl.NumberFormat('fr-FR').format(Math.round(getSoldeRestant(f)))} FCFA</Text>
                         </View>
                       </View>
@@ -567,8 +585,8 @@ export default function DashboardScreen() {
       {/* ── MODAL POP-UP DES NOTIFICATIONS (Relié à l'icône cloche 🔔) ── */}
       <Modal visible={showNotifPopUp} transparent animationType="slide" onRequestClose={() => setShowNotifPopUp(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowNotifPopUp(false)}>
-          <TouchableOpacity style={s.sheetNotif} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
+          <TouchableOpacity style={[s.sheetNotif, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.handle, { backgroundColor: K.border }]} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Bell color={C.amber600} size={20} />
@@ -593,29 +611,29 @@ export default function DashboardScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingTop: 10 }}>
               {loadingNotifs ? (
-                <ActivityIndicator color={C.amber500} style={{ paddingVertical: 20 }} />
+                <ActivityIndicator color={K.primary} style={{ paddingVertical: 20 }} />
               ) : notifs.length === 0 ? (
                 <View style={s.emptyNotifBox}>
-                  <Bell color={C.gray400} size={36} />
-                  <Text style={s.emptyNotifTitle}>Aucune notification</Text>
-                  <Text style={s.emptyNotifSub}>Vous êtes parfaitement à jour !</Text>
+                  <Bell color={K.textMuted} size={36} />
+                  <Text style={[s.emptyNotifTitle, { color: K.text }]}>Aucune notification</Text>
+                  <Text style={[s.emptyNotifSub, { color: K.textMuted }]}>Vous êtes parfaitement à jour !</Text>
                 </View>
               ) : (
                 notifs.map(n => (
                   <TouchableOpacity
                     key={String(n.id)}
-                    style={[s.notifCardItem, !n.lu && s.notifCardItemUnread]}
+                    style={[s.notifCardItem, { backgroundColor: K.bgSecondary, borderColor: K.border }, !n.lu && s.notifCardItemUnread]}
                     onPress={() => handleMarkRead(n.id)}
                     activeOpacity={0.85}
                   >
                     <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-                      <View style={[s.notifIconWrap, n.type === 'facture_retard' ? { backgroundColor: C.red100 } : { backgroundColor: C.blue100 }]}>
+                      <View style={[s.notifIconWrap, n.type === 'facture_retard' ? { backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : C.red100 } : { backgroundColor: isDark ? 'rgba(59,130,246,0.2)' : C.blue100 }]}>
                         {n.type === 'facture_retard' ? <AlertTriangle color={C.red600} size={16} /> : <Bell color={C.blue600} size={16} />}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[s.notifItemTitle, !n.lu && { color: C.gray900 }]} numberOfLines={1}>{n.titre}</Text>
-                        <Text style={s.notifItemMsg} numberOfLines={2}>{n.message}</Text>
-                        <Text style={s.notifItemDate}>{new Date(n.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</Text>
+                        <Text style={[s.notifItemTitle, { color: K.textSecondary }, !n.lu && { color: K.text }]} numberOfLines={1}>{n.titre}</Text>
+                        <Text style={[s.notifItemMsg, { color: K.textMuted }]} numberOfLines={2}>{n.message}</Text>
+                        <Text style={[s.notifItemDate, { color: K.textMuted }]}>{new Date(n.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</Text>
                       </View>
                       {!n.lu && <View style={s.unreadDotPop} />}
                     </View>
@@ -629,22 +647,22 @@ export default function DashboardScreen() {
       {/* ── MODAL NOUVELLE FACTURE (PAGE D'ACCUEIL) ── */}
       <Modal visible={showFactureModal} transparent animationType="slide" onRequestClose={() => setShowFactureModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowFactureModal(false)}>
-          <TouchableOpacity style={s.sheetNotif} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 14 }}>Nouvelle Facture d'Honoraires</Text>
+          <TouchableOpacity style={[s.sheetNotif, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+            <View style={[s.handle, { backgroundColor: K.border }]} />
+            <Text style={{ fontSize: 17, fontWeight: '700', color: K.text, marginBottom: 14 }}>Nouvelle Facture d'Honoraires</Text>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 160 }}>
 
               {/* Dossier */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Dossier / Affaire concernée *</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Dossier / Affaire concernée *</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {dossiers.map(d => (
                     <TouchableOpacity
                       key={d.id}
                       onPress={() => setFactDossierId(Number(d.id))}
-                      style={[{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.gray100, borderWidth: 1, borderColor: C.gray200 }, Number(factDossierId) === Number(d.id) && { backgroundColor: C.amber100, borderColor: C.amber400 }]}
+                      style={[{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: K.bgTertiary, borderWidth: 1, borderColor: K.border }, Number(factDossierId) === Number(d.id) && { backgroundColor: K.primaryLight, borderColor: K.primary }]}
                     >
-                      <Text style={[{ fontSize: 12, color: C.gray700 }, Number(factDossierId) === Number(d.id) && { color: C.amber900, fontWeight: '700' }]}>
+                      <Text style={[{ fontSize: 12, color: K.textSecondary }, Number(factDossierId) === Number(d.id) && { color: K.primary, fontWeight: '700' }]}>
                         {d.numeroAffaire} — {d.titre}
                       </Text>
                     </TouchableOpacity>
@@ -655,75 +673,75 @@ export default function DashboardScreen() {
               {/* Montant HT & TVA */}
               <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                 <View style={{ flex: 2 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Montant HT (FCFA) *</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Montant HT (FCFA) *</Text>
                   <TextInput
-                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: C.gray900 }}
+                    style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: K.text, backgroundColor: K.inputBg }}
                     value={factMontantHt}
                     onChangeText={setFactMontantHt}
                     keyboardType="numeric"
                     placeholder="ex: 500000"
-                    placeholderTextColor={C.gray400}
+                    placeholderTextColor={K.textMuted}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>TVA (%)</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>TVA (%)</Text>
                   <TextInput
-                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: C.gray900 }}
+                    style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: K.text, backgroundColor: K.inputBg }}
                     value={factTva}
                     onChangeText={setFactTva}
                     keyboardType="numeric"
                     placeholder="19.25"
-                    placeholderTextColor={C.gray400}
+                    placeholderTextColor={K.textMuted}
                   />
                 </View>
               </View>
 
               {/* Estimation TTC */}
               {factMontantHt && !isNaN(Number(factMontantHt)) ? (
-                <View style={{ backgroundColor: C.amber50, borderWidth: 1, borderColor: C.amber200, borderRadius: 10, padding: 10, marginBottom: 12 }}>
-                  <Text style={{ fontSize: 13, color: C.amber900 }}>
-                    Montant TTC estimé : <Text style={{ fontWeight: '800', color: C.amber900 }}>{new Intl.NumberFormat('fr-FR').format(Math.round(Number(factMontantHt) * (1 + (Number(factTva) || 19.25) / 100)))} FCFA</Text>
+                <View style={{ backgroundColor: K.primaryLight, borderWidth: 1, borderColor: K.primary, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, color: K.primary }}>
+                    Montant TTC estimé : <Text style={{ fontWeight: '800', color: K.primary }}>{new Intl.NumberFormat('fr-FR').format(Math.round(Number(factMontantHt) * (1 + (Number(factTva) || 19.25) / 100)))} FCFA</Text>
                   </Text>
                 </View>
               ) : null}
 
               {/* Échéance */}
               <View style={{ marginBottom: 12 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Date d'échéance (YYYY-MM-DD)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Date d'échéance (YYYY-MM-DD)</Text>
                 <TextInput
-                  style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: C.gray900 }}
+                  style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: K.text, backgroundColor: K.inputBg }}
                   value={factEcheance}
                   onChangeText={setFactEcheance}
                   placeholder="2026-10-15"
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
               {/* Description */}
               <View style={{ marginBottom: 14 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, marginBottom: 6 }}>Description / Libellé des prestations</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: K.text, marginBottom: 6 }}>Description / Libellé des prestations</Text>
                 <TextInput
-                  style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: C.gray900, height: 75, textAlignVertical: 'top' }}
+                  style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: K.text, backgroundColor: K.inputBg, height: 75, textAlignVertical: 'top' }}
                   value={factDesc}
                   onChangeText={setFactDesc}
                   multiline
                   numberOfLines={3}
                   placeholder="ex: Honoraires de diligence, plaidoirie, rédaction d'actes..."
-                  placeholderTextColor={C.gray400}
+                  placeholderTextColor={K.textMuted}
                 />
               </View>
 
               <TouchableOpacity
-                style={[{ backgroundColor: C.amber500, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 6 }, creatingFact && { opacity: 0.6 }]}
+                style={[{ backgroundColor: K.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 6 }, creatingFact && { opacity: 0.6 }]}
                 onPress={handleCreateFactureSubmit}
                 disabled={creatingFact}
                 activeOpacity={0.85}
               >
-                {creatingFact ? <ActivityIndicator color={C.gray900} /> : <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Enregistrer la facture</Text>}
+                {creatingFact ? <ActivityIndicator color={isDark ? C.gray900 : '#ffffff'} /> : <Text style={{ fontSize: 14, fontWeight: '700', color: isDark ? C.gray900 : '#ffffff' }}>Enregistrer la facture</Text>}
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 }} onPress={() => setShowFactureModal(false)} activeOpacity={0.8}>
-                <Text style={{ fontSize: 14, fontWeight: '500', color: C.gray500 }}>Annuler</Text>
+              <TouchableOpacity style={{ borderWidth: 1, borderColor: K.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 }} onPress={() => setShowFactureModal(false)} activeOpacity={0.8}>
+                <Text style={{ fontSize: 14, fontWeight: '500', color: K.textMuted }}>Annuler</Text>
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>

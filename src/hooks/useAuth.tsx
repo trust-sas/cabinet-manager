@@ -14,6 +14,7 @@
 import api, {
     authExpiredEmitter,
     extractErrorMessage,
+    formatPhoneWithCountryCode,
     LoginResponse,
     TokenPair,
 } from '@/lib/api';
@@ -70,8 +71,8 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, motDePasse: string) => Promise<LoginOutcome>;
   loginWithSocial: (provider: 'google' | 'apple', email: string, nom?: string) => Promise<void>;
-  sendOtp: (email: string) => Promise<{ success: boolean; message: string }>;
-  verifyOtp: (email: string, code: string) => Promise<{ verified: true; email: string }>;
+  sendOtp: (target: string) => Promise<{ success: boolean; message: string; code?: string }>;
+  verifyOtp: (target: string, code: string) => Promise<{ verified: true; target?: string; email?: string }>;
   verify2fa: (preAuthToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -161,11 +162,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── login ─────────────────────────────────────────────────────────────────
 
   const login = useCallback(async (
-    email: string,
+    identifiant: string,
     motDePasse: string,
   ): Promise<LoginOutcome> => {
+    const formattedId = formatPhoneWithCountryCode(identifiant);
     const { data } = await api.post<LoginResponse>('/auth/login', {
-      email,
+      telephone: formattedId,
+      identifiant: formattedId,
+      email: formattedId,
       motDePasse,
     });
 
@@ -211,15 +215,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [router]);
 
-  // ── OTP EMAIL VERIFICATION ────────────────────────────────────────────────
+  // ── OTP SMS VERIFICATION ──────────────────────────────────────────────────
 
-  const sendOtp = useCallback(async (email: string) => {
-    const { data } = await api.post<{ success: boolean; message: string }>('/auth/send-code', { email });
+  const sendOtp = useCallback(async (target: string) => {
+    const formattedTarget = formatPhoneWithCountryCode(target);
+    const { data } = await api.post<{ success: boolean; message: string; code?: string }>('/auth/send-code', { telephone: formattedTarget, target: formattedTarget });
     return data;
   }, []);
 
-  const verifyOtp = useCallback(async (email: string, code: string): Promise<{ verified: true; email: string }> => {
-    const { data } = await api.post<{ verified: true; email: string }>('/auth/verify-code', { email, code });
+  const verifyOtp = useCallback(async (target: string, code: string): Promise<{ verified: true; target?: string; email?: string }> => {
+    const formattedTarget = formatPhoneWithCountryCode(target);
+    const { data } = await api.post<{ verified: true; target?: string; email?: string }>('/auth/verify-code', { telephone: formattedTarget, target: formattedTarget, code });
     return data;
   }, []);
 

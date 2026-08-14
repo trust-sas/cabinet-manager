@@ -42,7 +42,7 @@ export type ActionLog =
   | 'modification_client' | 'creation_utilisateur' | 'modification_role'
   | 'modification_permissions' | 'export_donnees' | 'consultation_dossier'
   | 'planification_audience' | 'connexion_echec' | 'tentative_acces_refuse'
-  | 'restauration_donnees';
+  | 'restauration_donnees' | 'commentaire_utilisateur';
 
 export interface LogActivite {
   id: string;

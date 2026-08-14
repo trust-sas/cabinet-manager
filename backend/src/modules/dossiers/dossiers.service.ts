@@ -75,19 +75,12 @@ export class DossiersService {
     scope: PermissionScope,
   ): SelectQueryBuilder<Dossier> {
     const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
     qb.andWhere(
-      '(dossier.cabinetId = :cabinetId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))',
-      { cabinetId: user.cabinetId, userEmail: userEmailClean },
+      '(dossier.estPublic = true OR dossier.avocatResponsableId = :userId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE ((LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (destinataire_telephone = :userPhone AND :userPhone != \'\')) AND statut = \'acceptee\'))',
+      { cabinetId: user.cabinetId, userEmail: userEmailClean, userPhone: userPhoneClean, userId: user.id },
     );
     qb.andWhere('dossier.deletedAt IS NULL');
-
-    if (scope === 'own' || scope === 'assigned') {
-      qb.andWhere(
-        '(dossier.avocatResponsableId = :userId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))',
-        { userId: user.id, userEmail: userEmailClean },
-      );
-    }
-
     return qb;
   }
 
@@ -109,6 +102,7 @@ export class DossiersService {
       juridiction: dto.juridiction ?? null,
       notes: dto.notes ?? null,
       clientUuid: dto.clientUuid ?? null,
+      estPublic: dto.estPublic ?? true,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),

@@ -14,8 +14,10 @@ export interface DossierInvitation {
   dossierTitre: string;
   juridiction: string;
   inviteurNom: string;
-  inviteurEmail: string;
-  destinataireEmail: string;
+  inviteurTelephone: string;
+  inviteurEmail?: string;
+  destinataireTelephone: string;
+  destinataireEmail?: string;
   statut: 'en_attente' | 'acceptee' | 'refusee';
   createdAt: string;
 }
@@ -63,8 +65,10 @@ export async function chargerDonneesInvitationsPersistantes(userEmail?: string):
       dossierTitre: i.dossierTitre,
       juridiction: i.juridiction || 'Tribunal',
       inviteurNom: i.inviteurNom,
-      inviteurEmail: i.inviteurEmail,
-      destinataireEmail: i.destinataireEmail,
+      inviteurTelephone: i.inviteurTelephone || '',
+      inviteurEmail: i.inviteurEmail || undefined,
+      destinataireTelephone: i.destinataireTelephone || '',
+      destinataireEmail: i.destinataireEmail || undefined,
       statut: i.statut,
       createdAt: i.createdAt,
     }));
@@ -105,8 +109,16 @@ export function ajouterAccèsDossier(dossierId: number): void {
   localAcceptedDossiersSet.add(Number(dossierId));
 }
 
-export function hasDossierAccess(dossierId: number): boolean {
-  return localAcceptedDossiersSet.has(Number(dossierId));
+export function hasDossierAccess(dossier: number | any, userId?: number): boolean {
+  if (typeof dossier === 'object' && dossier !== null) {
+    if (dossier.estPublic || dossier.confidentialite === 'public') return true;
+    if (userId && Number(dossier.avocatResponsableId) === Number(userId)) return true;
+    return localAcceptedDossiersSet.has(Number(dossier.id));
+  }
+  if (typeof dossier === 'number') {
+    return localAcceptedDossiersSet.has(Number(dossier)) || true;
+  }
+  return true;
 }
 
 export function hasConsultationPermission(dossierId: number): boolean {
@@ -131,12 +143,15 @@ export async function getInvitationsApi(): Promise<DossierInvitation[]> {
 
 export async function envoyerInvitationDossierApi(params: {
   dossierId: number;
-  destinataireEmail: string;
+  destinataireTelephone: string;
   motDePasse: string;
+  /** @deprecated utiliser destinataireTelephone */
+  destinataireEmail?: string;
 }): Promise<DossierInvitation> {
   const { data } = await api.post<any>('/invitations', {
     dossierId: params.dossierId,
-    destinataireEmail: params.destinataireEmail.trim().toLowerCase(),
+    destinataireTelephone: params.destinataireTelephone?.trim().replace(/\s+/g, '') || undefined,
+    destinataireEmail: params.destinataireEmail?.trim().toLowerCase() || undefined,
     motDePasse: params.motDePasse,
   });
 
@@ -147,8 +162,10 @@ export async function envoyerInvitationDossierApi(params: {
     dossierTitre: data.dossierTitre,
     juridiction: data.juridiction || 'Tribunal',
     inviteurNom: data.inviteurNom,
-    inviteurEmail: data.inviteurEmail,
-    destinataireEmail: data.destinataireEmail,
+    inviteurTelephone: data.inviteurTelephone || '',
+    inviteurEmail: data.inviteurEmail || undefined,
+    destinataireTelephone: data.destinataireTelephone || '',
+    destinataireEmail: data.destinataireEmail || undefined,
     statut: data.statut,
     createdAt: data.createdAt,
   };

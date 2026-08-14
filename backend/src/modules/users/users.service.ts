@@ -14,7 +14,8 @@ export interface SafeUserProfile {
   id: number;
   cabinetId: number;
   nom: string;
-  email: string;
+  telephone?: string | null;
+  email?: string | null;
   role: string;
   permissions: string[];
   authentif2faActif: boolean;
@@ -24,8 +25,8 @@ export interface SafeUserProfile {
 export interface CreateUserParams {
   nom: string;
   prenom?: string;
-  email: string;
-  telephone?: string;
+  telephone: string;
+  email?: string;
   dateNaissance?: string;
   motDePasse: string;
   role: RoleLibelle;
@@ -42,11 +43,47 @@ export class UsersService {
     private readonly roleAccesRepository: Repository<RoleAcces>,
   ) {}
 
+  /* Recherche par email (optionnel / hérité)
   async findByEmail(email: string): Promise<Utilisateur | null> {
     return this.utilisateurRepository.findOne({
       where: { email, deletedAt: IsNull() },
       relations: ['roleAcces'],
     });
+  }
+  */
+
+  async findByEmail(email: string): Promise<Utilisateur | null> {
+    if (!email) return null;
+    return this.utilisateurRepository.findOne({
+      where: { email: email.trim().toLowerCase(), deletedAt: IsNull() },
+      relations: ['roleAcces'],
+    });
+  }
+
+  /** Recherche prioritaire par téléphone (ou identifiant) avec normalisation +237 */
+  async findByTelephone(telephone: string): Promise<Utilisateur | null> {
+    if (!telephone) return null;
+    const cleanPhone = telephone.replace(/\s+/g, '').trim();
+    let normalizedPhone = cleanPhone;
+    if (!normalizedPhone.startsWith('+') && !normalizedPhone.includes('@')) {
+      normalizedPhone = `+237${normalizedPhone.replace(/^0/, '')}`;
+    }
+    return this.utilisateurRepository.findOne({
+      where: [
+        { telephone: cleanPhone, deletedAt: IsNull() },
+        { telephone: normalizedPhone, deletedAt: IsNull() },
+        { telephone: telephone.trim(), deletedAt: IsNull() },
+      ],
+      relations: ['roleAcces'],
+    });
+  }
+
+  async findByIdentifiant(identifiant: string): Promise<Utilisateur | null> {
+    if (!identifiant) return null;
+    const clean = identifiant.trim();
+    const userByPhone = await this.findByTelephone(clean);
+    if (userByPhone) return userByPhone;
+    return this.findByEmail(clean);
   }
 
   async findById(id: number): Promise<Utilisateur> {
@@ -63,18 +100,23 @@ export class UsersService {
   }
 
   /**
-   * Crée un nouvel utilisateur via l'auto-inscription publique.
-   * Le compte est créé INACTIF (actif = false) → l'admin doit l'activer.
-   * Si aucun cabinetId n'est fourni, utilise le premier cabinet actif (mode démo).
+   * Crée un nouvel utilisateur avec le N° de téléphone obligatoire et l'email optionnel.
    */
   async createUser(params: CreateUserParams): Promise<SafeUserProfile> {
-    const { nom, email, motDePasse, role, cabinetId } = params;
+    const { nom, telephone, email, motDePasse, role, cabinetId } = params;
 
-    // 1. Unicité de l'email (global)
-    const existant = await this.utilisateurRepository.findOne({ where: { email } });
+    const cleanPhone = telephone.replace(/\s+/g, '').trim();
+    if (!cleanPhone) {
+      throw new ConflictException({
+        error: { code: 'BAD_REQUEST', message: 'Le numéro de téléphone est obligatoire.', status: 400 },
+      });
+    }
+
+    // 1. Unicité du téléphone (global)
+    const existant = await this.findByTelephone(cleanPhone);
     if (existant) {
       throw new ConflictException({
-        error: { code: 'CONFLICT', message: 'Un compte avec cet email existe déjà.', status: 409 },
+        error: { code: 'CONFLICT', message: 'Un compte avec ce numéro de téléphone existe déjà.', status: 409 },
       });
     }
 
@@ -88,7 +130,7 @@ export class UsersService {
       });
     }
 
-    // 3. Cabinet cible (création automatique de cabinet si non fourni)
+    // 3. Cabinet cible
     let resolvedCabinetId = cabinetId;
     if (!resolvedCabinetId) {
       const res = await this.utilisateurRepository.query(
@@ -110,12 +152,13 @@ export class UsersService {
       parallelism: 4,
     });
 
-    // 5. Création inactif
+    // 5. Création de l'utilisateur avec téléphone obligatoire et email optionnel
     const nouvelUtilisateur = this.utilisateurRepository.create({
       cabinetId: resolvedCabinetId,
       roleAccesId: roleAcces.id,
       nom: nom.trim(),
-      email: email.trim().toLowerCase(),
+      telephone: cleanPhone,
+      email: email ? email.trim().toLowerCase() : null,
       motDePasseHash,
       role,
       actif: true,
@@ -227,6 +270,7 @@ export class UsersService {
       id: utilisateur.id,
       cabinetId: utilisateur.cabinetId,
       nom: utilisateur.nom,
+      telephone: utilisateur.telephone,
       email: utilisateur.email,
       role: utilisateur.role,
       permissions: (utilisateur.roleAcces as RoleAcces & { permissions?: string[] })?.permissions ?? [],
