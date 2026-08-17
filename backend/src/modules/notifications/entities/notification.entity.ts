@@ -6,10 +6,13 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 export enum NotificationType {
-  AUDIENCE_RAPPEL = 'audience_rappel',
-  FACTURE_RETARD  = 'facture_retard',
-  RDV_RAPPEL      = 'rdv_rappel',
-  INFO            = 'info',
+  AUDIENCE_RAPPEL     = 'audience_rappel',
+  FACTURE_RETARD      = 'facture_retard',
+  RDV_RAPPEL          = 'rdv_rappel',
+  INFO                = 'info',
+  INVITATION          = 'invitation',
+  PERMISSION_REQUETE  = 'permission_requete',
+  PERMISSION_REPONSE  = 'permission_reponse',
 }
 
 @Entity('notifications')

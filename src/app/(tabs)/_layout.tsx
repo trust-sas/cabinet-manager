@@ -19,6 +19,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
@@ -80,7 +81,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen name="facturation"  options={{ href: null, title: 'Facturation' }} />
-      <Tabs.Screen name="assistant-ia" options={{ href: null, title: 'IA' }} />
+      <Tabs.Screen name="assistant-ia" options={{ href: null, title: 'IA', tabBarStyle: { display: 'none' } }} />
     </Tabs>
   );
 }

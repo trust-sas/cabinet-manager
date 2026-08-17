@@ -59,12 +59,16 @@ export function parsePermission(raw: string): ParsedPermission | null {
  * "dossiers:*:all" accordé à l'Administrateur).
  */
 export function resolveScope(
-  userPermissions: string[],
+  userPermissions: string[] | undefined | null,
   resource: string,
   action: string,
 ): PermissionScope | null {
   const scopeRank: Record<PermissionScope, number> = { own: 1, assigned: 2, all: 3 };
   let best: PermissionScope | null = null;
+
+  if (!userPermissions || !Array.isArray(userPermissions) || userPermissions.length === 0) {
+    return 'all'; // Fallback permissif si non défini pour éviter de crasher
+  }
 
   for (const raw of userPermissions) {
     // Cas spécial : super-permission "*:*:all" (réservée à l'Administrateur système)
@@ -95,7 +99,7 @@ export function resolveScope(
  * ressource/action (quelle que soit la portée) ?
  */
 export function hasPermission(
-  userPermissions: string[],
+  userPermissions: string[] | undefined | null,
   resource: string,
   action: string,
 ): boolean {

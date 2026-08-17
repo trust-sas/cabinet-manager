@@ -127,3 +127,53 @@ export async function buildDownloadHeaders(): Promise<Record<string, string>> {
 export function getDocumentDownloadUrl(id: number): string {
   return `${API_BASE_URL}/documents/${id}/download`;
 }
+
+export interface DocumentAccessStatus {
+  canAccess: boolean;
+  isSecret: boolean;
+  isOwner: boolean;
+  hasPendingRequest: boolean;
+  permissionId?: number;
+}
+
+export interface DocumentPermissionItem {
+  id: number;
+  documentId: number;
+  dossierId: number;
+  demandeurId: number;
+  demandeurNom: string | null;
+  demandeurTelephone: string | null;
+  demandeurEmail: string | null;
+  createurId: number;
+  documentNom: string | null;
+  dossierNumero: string | null;
+  statut: 'en_attente' | 'autorisee' | 'refusee';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getDocumentAccessStatus(id: number): Promise<DocumentAccessStatus> {
+  const { data } = await api.get<DocumentAccessStatus>(`/documents/${id}/access-status`);
+  return data;
+}
+
+export async function demanderAccesDocument(id: number): Promise<{ success: boolean; message: string }> {
+  const { data } = await api.post<{ success: boolean; message: string }>(`/documents/${id}/demander-acces`);
+  return data;
+}
+
+export async function repondreDemandeAccesDocument(
+  permissionId: number,
+  autoriser: boolean,
+): Promise<{ success: boolean; message: string }> {
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    `/documents/permissions/${permissionId}/repondre`,
+    { autoriser },
+  );
+  return data;
+}
+
+export async function getMesDemandesPermissions(): Promise<DocumentPermissionItem[]> {
+  const { data } = await api.get<DocumentPermissionItem[]>('/documents/permissions/mes-demandes');
+  return data;
+}

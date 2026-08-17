@@ -10,6 +10,8 @@ import { QueryAudiencesDto } from './dto/query-audiences.dto';
 import { JournalService } from '../journal/journal.service';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 
+import { Dossier } from '../dossiers/entities/dossier.entity';
+
 export interface ResultatPagine<T> {
   page: number; pageSize: number; total: number; data: T[];
 }
@@ -19,12 +21,20 @@ export class AudiencesService {
   constructor(
     @InjectRepository(Audience)
     private readonly repo: Repository<Audience>,
+    @InjectRepository(Dossier)
+    private readonly dossierRepo: Repository<Dossier>,
     private readonly journalService: JournalService,
   ) {}
 
   async create(dto: CreateAudienceDto, user: AuthenticatedUser): Promise<Audience> {
+    let targetCabinetId = user.cabinetId;
+    if (dto.dossierId) {
+      const dossier = await this.dossierRepo.findOne({ where: { id: dto.dossierId } });
+      if (dossier) targetCabinetId = dossier.cabinetId;
+    }
+
     const audience = this.repo.create({
-      cabinetId: user.cabinetId,
+      cabinetId: targetCabinetId,
       dossierId: dto.dossierId,
       dateAudience: new Date(dto.dateAudience),
       heure: dto.heure ?? null,
@@ -39,7 +49,7 @@ export class AudiencesService {
     });
     const saved = await this.repo.save(audience);
     await this.journalService.enregistrer({
-      cabinetId: user.cabinetId, utilisateurId: user.id,
+      cabinetId: targetCabinetId, utilisateurId: user.id,
       action: 'audience.create', entiteType: 'audience',
       entiteId: saved.id, donneesApres: { ...saved },
     });
@@ -48,8 +58,11 @@ export class AudiencesService {
 
   async findAll(query: QueryAudiencesDto, user: AuthenticatedUser): Promise<ResultatPagine<Audience>> {
     const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
+    const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
+
     const qb = this.repo.createQueryBuilder('a')
-      .where('(a.cabinetId = :cabinetId OR a.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
+      .where('(a.cabinetId = :cabinetId OR a.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('a.deletedAt IS NULL');
 
     if (query.dossierId) qb.andWhere('a.dossierId = :dossierId', { dossierId: query.dossierId });
@@ -66,9 +79,16 @@ export class AudiencesService {
   }
 
   async findOne(id: number, user: AuthenticatedUser): Promise<Audience> {
-    const a = await this.repo.findOne({
-      where: { id, cabinetId: user.cabinetId, deletedAt: null as any },
-    });
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
+    const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
+
+    const a = await this.repo.createQueryBuilder('a')
+      .where('a.id = :id', { id })
+      .andWhere('(a.cabinetId = :cabinetId OR a.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .andWhere('a.deletedAt IS NULL')
+      .getOne();
+
     if (!a) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'Audience introuvable.', status: 404 } });
     return a;
   }

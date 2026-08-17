@@ -106,13 +106,15 @@ export default function LoginScreen() {
       <SafeAreaView style={s.safe}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'android' ? 20 : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           <ScrollView
-            contentContainerStyle={s.scroll}
+            contentContainerStyle={[s.scroll, { flexGrow: 1, paddingBottom: 280, paddingTop: 20 }]}
             keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            automaticallyAdjustKeyboardInsets={true}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
           >
             {/* Logo */}
             <View style={s.logoWrap}>
@@ -289,15 +291,15 @@ export default function LoginScreen() {
 const s = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  logoWrap: { alignItems: 'center', marginTop: 48, marginBottom: 36 },
+  scroll: { flexGrow: 1, paddingHorizontal: 24 },
+  logoWrap: { alignItems: 'center', marginTop: 16, marginBottom: 16 },
   logoBox: {
-    width: 80, height: 80, backgroundColor: C.amber500, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-    shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.5, shadowRadius: 12, elevation: 10,
+    width: 64, height: 64, backgroundColor: C.amber500, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
-  appTitle: { fontSize: 28, fontWeight: '800', marginBottom: 4, letterSpacing: -0.5 },
-  appSub: { fontSize: 14, fontWeight: '500' },
+  appTitle: { fontSize: 24, fontWeight: '800', marginBottom: 2, letterSpacing: -0.5 },
+  appSub: { fontSize: 13, fontWeight: '500' },
   form: { gap: 18 },
   formTitle: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
   formSub: { fontSize: 14 },
@@ -335,7 +337,7 @@ const s = StyleSheet.create({
     letterSpacing: 12, borderWidth: 1.5, borderRadius: 14,
     paddingVertical: 16, paddingHorizontal: 20,
   },
-  footer: { alignItems: 'center', marginTop: 40, gap: 8 },
+  footer: { alignItems: 'center', marginTop: 24, gap: 6 },
   registerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   registerText: { fontSize: 14 },
   registerLink: { fontSize: 14, fontWeight: '600' },

@@ -182,6 +182,7 @@ ${listStr}`;
 
     // ── 0. DIALOGUES COURANTS COURTS ─────────────────────────────────────────
     if (!dto.dossierId) {
+      // Salutations
       if (/^(salut|bonjour|coucou|hello|hi|bonsoir|hey)(\s+.*)?$/i.test(lower) && lower.length < 35) {
         return `Bonjour ! 👋  \nComment puis-je vous aider ? Je peux lister vos dossiers, vos clients, vos audiences ou l'état de votre facturation.`;
       }
@@ -194,8 +195,13 @@ ${listStr}`;
         return `Je vais très bien, merci ! 😊 À votre service pour consulter vos dossiers, clients, factures ou audiences.`;
       }
 
-      if (/(utilit[eé]|sers?\s+[aà]|qui\s+es\s*tu|sais\s*tu\s+faire|peux\s*tu\s+faire)/i.test(lower)) {
-        return `Je suis l'**Assistant IA de Cabinet Manager** 🤖⚖️\n\n**Ce que je peux faire pour vous :**\n• **Dossiers :** Lister et analyser les affaires en cours.\n• **Clients :** Afficher la liste des clients et coordonnées.\n• **Audiences & Évènements :** Consulter l'agenda et les dates de tribunal.\n• **Facturation :** Calculer le chiffre d'affaires, les encaissés et les impayés.\n• **Droit & RAG :** Interroger le corpus des 52 textes de lois du Cameroun (OHADA, Code du travail, etc.).`;
+      if (/(utilit[eé]|sers?\s+[aà]|qui\s+es\s*tu|sais\s*tu\s+faire|peux\s*tu\s+faire|aide|help)/i.test(lower)) {
+        return `Je suis l'**Assistant IA de Cabinet Manager** 🤖⚖️\n\n**Ce que je peux faire pour vous :**\n• **Dossiers :** Lister et analyser les affaires en cours.\n• **Clients :** Afficher la liste des clients et coordonnées.\n• **Audiences & Évènements :** Consulter l'agenda et les dates de tribunal.\n• **Facturation :** Calculer le chiffre d'affaires, les encaissés et les impayés.\n• **Droit & RAG :** Interroger le corpus des 52 textes de lois du Cameroun (OHADA, Code du travail, etc.).\n\nPosez-moi votre question directement ou sélectionnez un dossier en haut de l'écran.`;
+      }
+
+      // Message très court et non reconnu — demander une précision
+      if (trimmed.length > 0 && trimmed.length < 8 && !/^(ok|oui|non|merci)$/i.test(lower)) {
+        return `Je n'ai pas bien compris votre demande. Pourriez-vous la formuler plus complètement ? \n\nPar exemple : *"Liste mes dossiers"*, *"Quels sont les délais OHADA ?"*, *"Montant des factures impayées"*.`;
       }
     }
 
@@ -301,12 +307,17 @@ Solde restant dû : ${resteAPayer > 0 ? resteAPayer.toLocaleString('fr-FR') : '2
 
     if (geminiKey) {
       try {
-        const systemPromptGemini = `Tu es l'Assistant IA Juridique & Polyvalent du Cabinet Manager.
-INSTRUCTIONS STRICTES :
-1. Tes réponses doivent être COURTES, PERTINENTES et PRÉCISES.
-2. Pas de formules d'introduction verbeuses ni de blabla inutile. Va directement à l'information demandée.
-3. Utilise un formatage Markdown propre (puces, gras, émojis sobrilement).
-4. Donne des chiffres précis, des noms et des dates.
+        const systemPromptGemini = `Tu es l'Assistant IA Juridique & Polyvalent de "Cabinet Manager", une application de gestion de cabinet d'avocats au Cameroun.
+
+INSTRUCTIONS STRICTES — à respecter impérativement :
+1. Tu ne réponds QUE sur les sujets suivants : droit camerounais / OHADA, gestion de cabinet d'avocat (dossiers, clients, audiences, factures, documents), conseil juridique ou questions relatives aux données de l'utilisateur.
+2. Si la question ne porte pas sur ces domaines (ex : recettes de cuisine, sport, politique, etc.), réponds UNIQUEMENT : "Je suis spécialisé dans l'assistance juridique et la gestion de cabinet d'avocats. Je ne peux pas répondre à cette question. Avez-vous une question sur vos dossiers, vos clients, les textes de loi ou la facturation ?"
+3. Si la question est ambiguë ou trop vague pour y répondre précisément, demande une clarification : indique ce qui manque et propose des exemples concrets.
+4. Si tu n'as pas l'information nécessaire dans le contexte fourni pour répondre précisément, dis-le franchement : "Je n'ai pas suffisamment d'informations pour répondre précisément à cette question. Pourriez-vous préciser..." puis indique ce qu'il faudrait préciser.
+5. Tes réponses doivent être COURTES, PERTINENTES et PRÉCISES. Pas d'introduction verbeuse. Va directement à l'information.
+6. Utilise un formatage Markdown propre (puces, gras, émojis sobrement).
+7. Donne des chiffres précis, des noms et des dates quand disponibles.
+8. Ne génère JAMAIS de données fictives (noms, montants, dates) si les données réelles ne sont pas fournies dans le contexte. Dis plutôt que l'information n'est pas disponible.
 
 ${contexteLoisRAG}
 
@@ -347,7 +358,7 @@ Question de l'utilisateur : ${dto.prompt}`;
             messages: [
               {
                 role: 'system',
-                content: `Tu es l'Assistant IA du Cabinet Manager. Réponds de façon COURTE, PERTINENTE et PRÉCISE sans introduction inutile. ${contexteLoisRAG} ${contexteDonneesReelles}`,
+                content: `Tu es l'Assistant IA Juridique de "Cabinet Manager", une application de gestion de cabinet d'avocats au Cameroun. Tu ne réponds QUE sur le droit camerounais/OHADA, la gestion de cabinet (dossiers, clients, audiences, factures), et les données fournies. Si la question est hors de ces domaines, dis-le clairement. Si la question est ambiguë, demande une précision. Ne génère jamais de données fictives. ${contexteLoisRAG} ${contexteDonneesReelles}`,
               },
               { role: 'user', content: dto.prompt },
             ],
@@ -379,6 +390,7 @@ Question de l'utilisateur : ${dto.prompt}`;
     lois: TexteLoi[],
   ): string {
     const lower = prompt.toLowerCase();
+    const trimmed = prompt.trim();
 
     // Cas d'un dossier sélectionné
     if (dossier) {
@@ -434,11 +446,23 @@ Question de l'utilisateur : ${dto.prompt}`;
 
     // Réponse rapide sur les Lois RAG
     if (lois.length > 0) {
-      const citations = lois
+      // Vérifier si la question est liée aux textes trouvés
+      const citationsContext = lois
         .map((l) => `📜 **${l.titreLoi}**\n_${l.contenu.slice(0, 280)}..._`)
         .join('\n\n');
+      return `📌 **Extraits légaux correspondants** :\n\n${citationsContext}\n\n_Pour une analyse approfondie, veuillez préciser votre question ou sélectionner un dossier._`;
+    }
 
-      return `📌 **Extraits Légaux** :\n\n${citations}`;
+    // Détecter les questions clairement hors-contexte (topics non-juridiques)
+    const horsContexte = /(recett|cuisine|météo|football|sport|film|musique|chanson|jeu\s+vidéo|politique(?!\s+judiciaire)|voyage|tourisme|mode\s+vestim)/i.test(lower);
+    if (horsContexte) {
+      return `Je suis spécialisé dans l'assistance juridique et la gestion de cabinet d'avocats. Je ne suis pas en mesure de répondre à cette question.\n\nAvez-vous une question sur vos **dossiers**, **clients**, **audiences**, **factures** ou les **textes de lois** ?`;
+    }
+
+    // Question trop vague sans mots-clés reconnus
+    const hasKeyword = /(dossier|affaire|client|audience|factur|loi|article|code|ohada|droit|juridiction|tribunal|procédure|contrat|litige|avocat|cabinet|pièce|document)/i.test(lower);
+    if (!hasKeyword && trimmed.length > 5) {
+      return `Je n'ai pas bien compris votre demande. Pourriez-vous la préciser ?\n\nJe peux vous aider sur :\n• Vos **dossiers & affaires**\n• Vos **clients**\n• Le **calendrier des audiences**\n• La **facturation**\n• Les **textes de lois** (OHADA, Code du travail, etc.)`;
     }
 
     return `Je suis à votre disposition. Demandez-moi vos **dossiers**, **clients**, **audiences**, **factures** ou une analyse juridique.`;

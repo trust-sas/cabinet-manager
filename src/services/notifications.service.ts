@@ -5,7 +5,14 @@
 
 import api from '@/lib/api';
 
-export type NotificationType = 'audience_rappel' | 'facture_retard' | 'rdv_rappel' | 'info';
+export type NotificationType =
+  | 'audience_rappel'
+  | 'facture_retard'
+  | 'rdv_rappel'
+  | 'info'
+  | 'invitation'
+  | 'permission_requete'
+  | 'permission_reponse';
 
 export interface NotificationItem {
   id: number;

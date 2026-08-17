@@ -218,6 +218,7 @@ export class InvitationsService {
       where: { id: user.id },
     });
 
+    inv.destinataireId = user.id;
     inv.statut = accepter ? 'acceptee' : 'refusee';
     const updated = await this.invitationRepository.save(inv);
 

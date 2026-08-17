@@ -8,9 +8,11 @@ import { FacturationController } from './facturation.controller';
 import { JournalModule } from '../journal/journal.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
+import { Dossier } from '../dossiers/entities/dossier.entity';
+
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Facture, Encaissement]),
+    TypeOrmModule.forFeature([Facture, Encaissement, Dossier]),
     JournalModule,
     NotificationsModule,
   ],

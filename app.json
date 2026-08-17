@@ -10,6 +10,7 @@
     "userInterfaceStyle": "automatic",
     "sdkVersion": "54.0.0",
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#111827"

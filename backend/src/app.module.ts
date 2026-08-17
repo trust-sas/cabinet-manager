@@ -21,6 +21,7 @@ import { Audience } from './modules/audiences/entities/audience.entity';
 import { RefreshToken } from './modules/auth/entities/refresh-token.entity';
 import { Client } from './modules/clients/entities/client.entity';
 import { Document } from './modules/documents/entities/document.entity';
+import { DocumentPermission } from './modules/documents/entities/document-permission.entity';
 import { Dossier } from './modules/dossiers/entities/dossier.entity';
 import { Encaissement } from './modules/facturation/entities/encaissement.entity';
 import { Facture } from './modules/facturation/entities/facture.entity';
@@ -36,6 +37,12 @@ import { SyncModule } from './modules/sync/sync.module';
 import { AssistantIaModule } from './modules/assistant-ia/assistant-ia.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { DossierInvitationEntity } from './modules/invitations/entities/dossier-invitation.entity';
+import { OrganisationsModule } from './modules/organisations/organisations.module';
+import { Organisation } from './modules/organisations/entities/organisation.entity';
+import { OrganisationMembre } from './modules/organisations/entities/organisation-membre.entity';
+import { OrganisationJoinRequest } from './modules/organisations/entities/organisation-join-request.entity';
+import { OrganisationDossier } from './modules/organisations/entities/organisation-dossier.entity';
+import { OrganisationClient } from './modules/organisations/entities/organisation-client.entity';
 
 @Module({
   imports: [
@@ -56,11 +63,17 @@ import { DossierInvitationEntity } from './modules/invitations/entities/dossier-
         JournalActivite,
         Audience,
         Document,
+        DocumentPermission,
         Facture,
         Encaissement,
         Notification,
         TexteLoi,
         DossierInvitationEntity,
+        Organisation,
+        OrganisationMembre,
+        OrganisationJoinRequest,
+        OrganisationDossier,
+        OrganisationClient,
       ],
       synchronize: false,
       logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
@@ -78,6 +91,7 @@ import { DossierInvitationEntity } from './modules/invitations/entities/dossier-
     InvitationsModule,
     SyncModule,
     AssistantIaModule,
+    OrganisationsModule,
   ],
   controllers: [HealthController],
 })

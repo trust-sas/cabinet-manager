@@ -76,17 +76,18 @@ export class DossiersService {
   ): SelectQueryBuilder<Dossier> {
     const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
     const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
+    const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
     qb.andWhere(
-      '(dossier.estPublic = true OR dossier.avocatResponsableId = :userId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE ((LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (destinataire_telephone = :userPhone AND :userPhone != \'\')) AND statut = \'acceptee\'))',
-      { cabinetId: user.cabinetId, userEmail: userEmailClean, userPhone: userPhoneClean, userId: user.id },
+      '(dossier.cabinetId = :cabinetId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))',
+      { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix },
     );
     qb.andWhere('dossier.deletedAt IS NULL');
     return qb;
   }
 
   async create(dto: CreateDossierDto, user: AuthenticatedUser): Promise<Dossier> {
-    // Vérifie que le client existe bien dans CE cabinet avant de créer le dossier.
-    await this.clientsService.verifierAppartenance(dto.clientId, user.cabinetId);
+    // Vérifie que le client existe et est accessible pour cet utilisateur
+    await this.clientsService.verifierAppartenance(dto.clientId, user);
 
     const avocatResponsableId = dto.avocatResponsableId ?? user.id;
     const numeroAffaire = await this.genererNumeroAffaire(user.cabinetId);

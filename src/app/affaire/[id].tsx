@@ -12,7 +12,10 @@ import { useDossier } from '@/hooks/useDossiers';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useFactures } from '@/hooks/useFactures';
 import { cloturerDossier, deleteDossier, DossierStatut, updateDossier } from '@/services/dossiers.service';
-import { Document as DocItem, DocumentConfidentialite, getDocumentDownloadUrl } from '@/services/documents.service';
+import {
+  Document as DocItem, DocumentConfidentialite, getDocumentDownloadUrl,
+  getDocumentAccessStatus, demanderAccesDocument,
+} from '@/services/documents.service';
 import { envoyerInvitationDossierApi, demanderPermissionConsultation, hasConsultationPermission } from '@/services/dossierInvitations.service';
 import { useAuth } from '@/hooks/useAuth';
 import { apercuAvecAppCompatible, getMimeType, telechargerDansTelephone } from '@/lib/fileViewerManager';
@@ -29,17 +32,16 @@ import {
 } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type Tab = 'resume' | 'audiences' | 'documents' | 'finances' | 'inviter';
+type Tab = 'resume' | 'audiences' | 'documents' | 'inviter';
 const TABS: { id: Tab; label: string; Icon: any }[] = [
   { id: 'resume',    label: 'Résumé',    Icon: FileText },
   { id: 'audiences', label: 'Agenda',    Icon: Calendar },
   { id: 'documents', label: 'Documents', Icon: FileText },
-  { id: 'finances',  label: 'Finances',  Icon: DollarSign },
   { id: 'inviter',   label: 'Inviter',   Icon: UserPlus },
 ];
 
@@ -118,6 +120,19 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
   const [showViewDocModal, setShowViewDocModal] = useState(false);
   const [downloadingDoc, setDownloadingDoc]   = useState(false);
   const [pdfPage, setPdfPage]                 = useState(1);
+
+  // Modal Permission pour Document Secret
+  const [secretDocModal, setSecretDocModal]   = useState<{
+    visible: boolean;
+    doc: DocItem | null;
+    hasPending: boolean;
+    loading: boolean;
+  }>({
+    visible: false,
+    doc: null,
+    hasPending: false,
+    loading: false,
+  });
 
   const { dossier, rentabilite, isLoading, error, refetch } = useDossier(dossierId);
   const { audiences, refetch: refetchAud, create: createAud } = useAudiences({ dossierId, lazy: false });
@@ -401,6 +416,70 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
 
   // ── Handlers Consultation & Téléchargement de Document ──────────────────────
 
+  const checkSecretAccessAndExecute = async (doc: DocItem, action: () => void) => {
+    // Si ce n'est pas un document secret, accès direct immédiat
+    if (doc.confidentialite !== 'secret') {
+      action();
+      return;
+    }
+
+    // 1. Si l'utilisateur connecté est l'auteur qui a créé / ajouté le document
+    if (doc.creePar && Number(doc.creePar) === Number(user?.id)) {
+      action();
+      return;
+    }
+
+    // 2. Si l'utilisateur connecté est le créateur / responsable du dossier
+    if (dossier) {
+      if (
+        (dossier.avocatResponsableId && Number(dossier.avocatResponsableId) === Number(user?.id)) ||
+        (dossier.cabinetId && Number(dossier.cabinetId) === Number(user?.cabinetId))
+      ) {
+        action();
+        return;
+      }
+    }
+
+    // 3. Vérification de la permission auprès de l'API
+    try {
+      const status = await getDocumentAccessStatus(doc.id);
+      if (status.canAccess) {
+        action();
+        return;
+      }
+
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: status.hasPendingRequest,
+        loading: false,
+      });
+    } catch {
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: false,
+        loading: false,
+      });
+    }
+  };
+
+  const handleDemanderAccesSecret = async () => {
+    if (!secretDocModal.doc) return;
+    setSecretDocModal(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await demanderAccesDocument(secretDocModal.doc.id);
+      setSecretDocModal(prev => ({ ...prev, loading: false, hasPending: true }));
+      Alert.alert(
+        'Demande envoyée',
+        res.message || 'Votre demande d\'autorisation a été transmise au créateur du dossier. Vous recevrez une notification dès qu\'elle sera traitée.',
+      );
+    } catch (e) {
+      setSecretDocModal(prev => ({ ...prev, loading: false }));
+      Alert.alert('Erreur', extractErrorMessage(e));
+    }
+  };
+
   const handleOpenViewDoc = (doc: DocItem) => {
     setSelectedDoc(doc);
     setPdfPage(1);
@@ -412,14 +491,16 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
    * (Adobe Acrobat, Word, Google Docs, Galerie, VLC…)
    */
   const handleConsulterDoc = async (doc: DocItem) => {
-    setDownloadingDoc(true);
-    try {
-      const url  = getDocumentDownloadUrl(doc.id);
-      const mime = getMimeType(doc.nom);
-      await apercuAvecAppCompatible(url, doc.nom, mime);
-    } finally {
-      setDownloadingDoc(false);
-    }
+    checkSecretAccessAndExecute(doc, async () => {
+      setDownloadingDoc(true);
+      try {
+        const url  = getDocumentDownloadUrl(doc.id);
+        const mime = getMimeType(doc.nom);
+        await apercuAvecAppCompatible(url, doc.nom, mime);
+      } finally {
+        setDownloadingDoc(false);
+      }
+    });
   };
 
   /**
@@ -427,14 +508,16 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
    * (Dossier Téléchargements sur Android, Fichiers sur iOS)
    */
   const handleDownloadDoc = async (doc: DocItem) => {
-    setDownloadingDoc(true);
-    try {
-      const url  = getDocumentDownloadUrl(doc.id);
-      const mime = getMimeType(doc.nom);
-      await telechargerDansTelephone(url, doc.nom, mime);
-    } finally {
-      setDownloadingDoc(false);
-    }
+    checkSecretAccessAndExecute(doc, async () => {
+      setDownloadingDoc(true);
+      try {
+        const url  = getDocumentDownloadUrl(doc.id);
+        const mime = getMimeType(doc.nom);
+        await telechargerDansTelephone(url, doc.nom, mime);
+      } finally {
+        setDownloadingDoc(false);
+      }
+    });
   };
 
 
@@ -644,7 +727,7 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                 <TouchableOpacity
                   key={String(doc.id)}
                   style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
-                  onPress={() => handleOpenViewDoc(doc)}
+                  onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
                   activeOpacity={0.85}
                 >
                   <View style={[s.docIcon, { backgroundColor: styleMeta.bg }]}>
@@ -671,13 +754,13 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                   <View style={{ gap: 6 }}>
                     <TouchableOpacity
                       style={s.docActionBtn}
-                      onPress={() => handleOpenViewDoc(doc)}
+                      onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
                     >
                       <Eye color={C.blue600} size={16} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={s.docActionBtn}
-                      onPress={() => handleDownloadDoc(doc)}
+                      onPress={() => checkSecretAccessAndExecute(doc, () => handleDownloadDoc(doc))}
                     >
                       <Download color={C.green600} size={16} />
                     </TouchableOpacity>
@@ -1019,10 +1102,20 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
       {/* ── MODAL ÉDITION DOSSIER ── */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowEditModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Modifier le dossier</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Modifier le dossier</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
               <View style={{ marginBottom: 12 }}>
                 <Text style={s.fieldLabel}>Titre de l'affaire *</Text>
                 <TextInput
@@ -1098,16 +1191,27 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
 
       {/* ── MODAL AJOUT DOCUMENT (PDF, WORD, EXCEL, PHOTO, SCAN) ── */}
       <Modal visible={showDocModal} transparent animationType="slide" onRequestClose={() => setShowDocModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowDocModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Ajouter un document au dossier</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Ajouter un document au dossier</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
 
               {/* Options de Captures / Importation */}
               <Text style={s.sourceSectionTitle}>Source du document</Text>
@@ -1212,16 +1316,27 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
 
       {/* ── MODAL AGENDA / ÉVÉNEMENT ── */}
       <Modal visible={showAudModal} transparent animationType="slide" onRequestClose={() => setShowAudModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowAudModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Ajouter au calendrier de l'affaire</Text>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Ajouter au calendrier de l'affaire</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
               
               {/* Catégories d'événements */}
               <Text style={s.fieldLabel}>Type d'événement *</Text>
@@ -1325,7 +1440,126 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
+
+      {/* ── MODAL PERMISSION DOCUMENT SECRET ── */}
+      <Modal
+        visible={secretDocModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+      >
+        <View style={s.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+          />
+          <View style={[s.modalCard, { maxWidth: 420, padding: 22 }]}>
+            {/* Header with Icon */}
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{
+                width: 64, height: 64, borderRadius: 32,
+                backgroundColor: C.purple100, alignItems: 'center', justifyContent: 'center',
+                marginBottom: 12, borderWidth: 2, borderColor: C.purple300,
+              }}>
+                <Lock color={C.purple700} size={30} />
+              </View>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: C.purple50, paddingHorizontal: 10, paddingVertical: 4,
+                borderRadius: 20, borderWidth: 1, borderColor: C.purple200, marginBottom: 8,
+              }}>
+                <ShieldAlert color={C.purple600} size={13} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.purple700, letterSpacing: 0.5 }}>
+                  CONFIDENTIALITÉ : SECRET
+                </Text>
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: C.gray900, textAlign: 'center' }}>
+                Document classé Secret
+              </Text>
+            </View>
+
+            {/* Document Info Card */}
+            <View style={{
+              backgroundColor: C.gray50, borderRadius: 12, padding: 14,
+              borderWidth: 1, borderColor: C.gray200, marginBottom: 16,
+            }}>
+              <Text style={{ fontSize: 12, color: C.gray500, fontWeight: '600', marginBottom: 4 }}>
+                PIÈCE SOUMISE À RESTRICTION :
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }} numberOfLines={2}>
+                {secretDocModal.doc?.nom || 'Document secret'}
+              </Text>
+              {secretDocModal.doc?.tailleKo ? (
+                <Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>
+                  Taille : {secretDocModal.doc.tailleKo} Ko
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Explication Message */}
+            <Text style={{ fontSize: 13, color: C.gray600, lineHeight: 20, textAlign: 'center', marginBottom: 18 }}>
+              {secretDocModal.hasPending
+                ? '⏳ Votre demande d\'autorisation a déjà été transmise au créateur du dossier. Elle est actuellement en attente de validation.'
+                : 'Ce document est protégé. Pour le consulter ou le télécharger, vous devez envoyer une demande de permission au créateur du dossier.'}
+            </Text>
+
+            {/* Actions */}
+            {secretDocModal.hasPending ? (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: C.gray800, paddingVertical: 14, borderRadius: 12,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+                onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                  Fermer (En attente de réponse)
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ gap: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: C.purple600, paddingVertical: 14, borderRadius: 12,
+                    alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
+                  }}
+                  onPress={handleDemanderAccesSecret}
+                  disabled={secretDocModal.loading}
+                  activeOpacity={0.85}
+                >
+                  {secretDocModal.loading ? (
+                    <ActivityIndicator color={C.white} size="small" />
+                  ) : (
+                    <>
+                      <Send color={C.white} size={16} />
+                      <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                        Demander la permission
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+                    justifyContent: 'center', backgroundColor: C.gray100,
+                  }}
+                  onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: C.gray700, fontSize: 13, fontWeight: '600' }}>
+                    Annuler
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
       </Modal>
 
       {/* Pop-up Calendrier & Choix d'heure (Dates passées bloquées) */}
@@ -1407,6 +1641,8 @@ const s = StyleSheet.create({
   factNum:        { fontSize: 14, fontWeight: '600', color: C.gray900 },
   factMeta:       { fontSize: 13, color: C.gray600, marginTop: 4 },
   overlay:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalCard:      { backgroundColor: C.white, borderRadius: 20, padding: 20, width: '100%', maxWidth: 420 },
   sheet:          { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', padding: 20 },
   sheetDocViewer: { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%', padding: 20 },
   handle:         { width: 40, height: 4, backgroundColor: C.gray200, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },

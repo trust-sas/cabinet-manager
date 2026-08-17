@@ -14,6 +14,9 @@ import {
   chargerDonneesInvitationsPersistantes, repondreInvitationApi,
   AppNotification, DossierInvitation, PermissionRequest,
 } from '@/services/dossierInvitations.service';
+import {
+  getMesDemandesPermissions, repondreDemandeAccesDocument, DocumentPermissionItem,
+} from '@/services/documents.service';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'expo-router';
 import {
@@ -117,7 +120,7 @@ export default function NotificationsScreen() {
   const fetchNotifs = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Notifications backend (audiences, factures, etc.)
+      // 1. Notifications backend (audiences, factures, permissions, etc.)
       const apiRes = await getNotifications().catch(() => ({ data: [], nonLuesCount: 0 }));
 
       // 2. Invitations depuis /api/v1/invitations
@@ -125,9 +128,14 @@ export default function NotificationsScreen() {
       const invMap = new Map<number, DossierInvitation>();
       invitations.forEach(inv => invMap.set(Number(inv.dossierId), inv));
 
+      // 3. Demandes de permissions documents secrets
+      const permissions = await getMesDemandesPermissions().catch(() => []);
+      const permDocMap = new Map<number, DocumentPermissionItem>();
+      permissions.forEach(p => permDocMap.set(Number(p.documentId), p));
+
       const backendMapped: (NotificationItem | AppNotification)[] = (apiRes.data as NotificationItem[]).map(n => {
         const matchInv = n.entiteId ? invMap.get(Number(n.entiteId)) : undefined;
-        if (matchInv || n.titre.includes('Invitation')) {
+        if (matchInv || n.titre.includes('Invitation') || (n.type as string) === 'invitation') {
           return {
             id: String(n.id),
             titre: n.titre,
@@ -138,6 +146,29 @@ export default function NotificationsScreen() {
             invitationData: matchInv || (invitations.length > 0 ? invitations[0] : undefined),
           };
         }
+
+        if ((n.type as string) === 'permission_requete' || n.titre.includes("Demande d'accès") || n.titre.includes('document secret')) {
+          const matchPerm = n.entiteId ? permDocMap.get(Number(n.entiteId)) : permissions.find(p => p.statut === 'en_attente');
+          return {
+            id: String(n.id),
+            titre: n.titre,
+            message: n.message,
+            type: 'permission_requete' as const,
+            lu: n.lu,
+            createdAt: n.createdAt,
+            permissionData: matchPerm ? {
+              id: String(matchPerm.id),
+              dossierId: matchPerm.dossierId,
+              dossierNumero: matchPerm.dossierNumero || 'Dossier',
+              demandeurNom: matchPerm.demandeurNom || 'Confrère invité',
+              demandeurEmail: matchPerm.demandeurTelephone || matchPerm.demandeurEmail || '',
+              createurEmail: '',
+              statut: matchPerm.statut,
+              createdAt: matchPerm.createdAt,
+            } : undefined,
+          };
+        }
+
         return n;
       });
 
@@ -212,11 +243,16 @@ export default function NotificationsScreen() {
     }
   };
 
-  const handleResponsePermission = (req: PermissionRequest, autoriser: boolean) => {
-    const res = repondrePermissionConsultation(req.id, autoriser);
-    if (res.success) {
-      Alert.alert(autoriser ? '🔓 Accès autorisé' : '🚫 Accès refusé', res.message);
+  const handleResponsePermission = async (req: PermissionRequest, autoriser: boolean) => {
+    try {
+      const res = await repondreDemandeAccesDocument(Number(req.id), autoriser);
+      Alert.alert(
+        autoriser ? '🔓 Accès autorisé' : '🚫 Accès refusé',
+        res.message || (autoriser ? 'Accès autorisé avec succès.' : 'Demande refusée.'),
+      );
       fetchNotifs();
+    } catch (e) {
+      Alert.alert('Erreur', extractErrorMessage(e));
     }
   };
 

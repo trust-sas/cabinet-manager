@@ -13,6 +13,8 @@ import { UpdateFactureDto } from './dto/update-facture.dto';
 import { Encaissement } from './entities/encaissement.entity';
 import { Facture, FactureStatut } from './entities/facture.entity';
 
+import { Dossier } from '../dossiers/entities/dossier.entity';
+
 export interface ResultatPagine<T> {
   page: number; pageSize: number; total: number; data: T[];
 }
@@ -24,18 +26,26 @@ export class FacturationService {
     private readonly factureRepo: Repository<Facture>,
     @InjectRepository(Encaissement)
     private readonly encaissRepo: Repository<Encaissement>,
+    @InjectRepository(Dossier)
+    private readonly dossierRepo: Repository<Dossier>,
     private readonly journalService: JournalService,
   ) {}
 
   // ── Factures ────────────────────────────────────────────────────────────
 
   async createFacture(dto: CreateFactureDto, user: AuthenticatedUser): Promise<Facture> {
-    const numeroFacture = await this.genererNumero(user.cabinetId);
+    let targetCabinetId = user.cabinetId;
+    if (dto.dossierId) {
+      const dossier = await this.dossierRepo.findOne({ where: { id: dto.dossierId } });
+      if (dossier) targetCabinetId = dossier.cabinetId;
+    }
+
+    const numeroFacture = await this.genererNumero(targetCabinetId);
     const taux = dto.tauxTva ?? 19.25;
     const ttc  = Number((dto.montantHt * (1 + taux / 100)).toFixed(2));
 
     const facture = this.factureRepo.create({
-      cabinetId: user.cabinetId,
+      cabinetId: targetCabinetId,
       dossierId: dto.dossierId,
       clientId: dto.clientId,
       numeroFacture,
@@ -53,7 +63,7 @@ export class FacturationService {
     });
     const saved = await this.factureRepo.save(facture);
     await this.journalService.enregistrer({
-      cabinetId: user.cabinetId, utilisateurId: user.id,
+      cabinetId: targetCabinetId, utilisateurId: user.id,
       action: 'facture.create', entiteType: 'facture',
       entiteId: saved.id, donneesApres: { ...saved },
     });
@@ -62,8 +72,11 @@ export class FacturationService {
 
   async findAllFactures(query: QueryFacturesDto, user: AuthenticatedUser): Promise<ResultatPagine<Facture>> {
     const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
+    const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
+
     const qb = this.factureRepo.createQueryBuilder('f')
-      .where('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE LOWER(destinataire_email) = :userEmail AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userEmail: userEmailClean })
+      .where('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('f.deletedAt IS NULL');
 
     if (query.dossierId) qb.andWhere('f.dossierId = :dossierId', { dossierId: query.dossierId });
@@ -79,9 +92,16 @@ export class FacturationService {
   }
 
   async findOneFacture(id: number, user: AuthenticatedUser): Promise<Facture> {
-    const f = await this.factureRepo.findOne({
-      where: { id, cabinetId: user.cabinetId, deletedAt: null as any },
-    });
+    const userEmailClean = user.email ? user.email.trim().toLowerCase() : '';
+    const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
+    const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
+
+    const f = await this.factureRepo.createQueryBuilder('f')
+      .where('f.id = :id', { id })
+      .andWhere('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .andWhere('f.deletedAt IS NULL')
+      .getOne();
+
     if (!f) throw new NotFoundException({ error: { code: 'NOT_FOUND', message: 'Facture introuvable.', status: 404 } });
     return f;
   }
