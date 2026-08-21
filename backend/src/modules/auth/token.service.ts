@@ -98,6 +98,7 @@ export class TokenService {
       permissions,
       twoFactorVerified: !utilisateur.authentif2faActif, // true si le 2FA n'est pas requis
       email: utilisateur.email ?? undefined,
+      telephone: utilisateur.telephone ?? undefined,
     };
 
     const accessToken = this.genererAccessToken(payload);

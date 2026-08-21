@@ -26,14 +26,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const STATUT_CFG: Record<FactureStatut, { label: string; bg: string; text: string; Icon: any }> = {
-  brouillon: { label: 'Brouillon',        bg: C.gray100,   text: C.gray600,   Icon: FileText },
-  envoyee:   { label: 'Envoyée',          bg: C.blue100,   text: C.blue700,   Icon: Send },
+  brouillon: { label: 'Impayée',          bg: C.blue100,   text: C.blue700,   Icon: Clock },
+  envoyee:   { label: 'Impayée',          bg: C.blue100,   text: C.blue700,   Icon: Clock },
   partielle: { label: 'Paiement partiel', bg: C.orange100, text: C.orange700, Icon: Clock },
-  payee:     { label: 'Payée',            bg: C.green100,  text: C.green700,  Icon: CheckCircle },
+  payee:     { label: 'Encaissée',        bg: C.green100,  text: C.green700,  Icon: CheckCircle },
   en_retard: { label: 'En retard',        bg: C.red100,    text: C.red700,    Icon: AlertTriangle },
 };
 
-const FILTER_ORDER: (FactureStatut | 'all')[] = ['all', 'en_retard', 'partielle', 'envoyee', 'payee', 'brouillon'];
+const FILTER_ORDER: (FactureStatut | 'all')[] = ['all', 'envoyee', 'payee', 'en_retard', 'partielle'];
 
 const fmtM = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n)) + ' FCFA';
 const fmtD = (d: string) =>
@@ -54,6 +54,14 @@ export default function FacturationScreen() {
   const [factDesc, setFactDesc]               = useState('');
   const [creatingFact, setCreatingFact]       = useState(false);
 
+  // Modal Édition Facture Sélectionnée
+  const [editFactMontantHt, setEditFactMontantHt] = useState('');
+  const [editFactTva, setEditFactTva]             = useState('19.25');
+  const [editFactEcheance, setEditFactEcheance]   = useState('');
+  const [editFactDesc, setEditFactDesc]           = useState('');
+  const [editFactStatut, setEditFactStatut]       = useState<'payee' | 'envoyee'>('envoyee');
+  const [savingEditFact, setSavingEditFact]       = useState(false);
+
   // Modal Encaissement
   const [encAmount, setEncAmount] = useState('');
   const [encMode, setEncMode]     = useState('virement');
@@ -63,7 +71,7 @@ export default function FacturationScreen() {
   const {
     factures, isLoading, error, total,
     totalFacture, totalEncaisse, totalImpaye, tauxRecouvrement,
-    refetch, create, envoyer, encaisser,
+    refetch, create, update, envoyer, encaisser, supprimer,
   } = useFactures({ statut: statut !== 'all' ? statut : undefined });
 
   const { dossiers } = useDossiers({ pageSize: 50 });
@@ -87,6 +95,78 @@ export default function FacturationScreen() {
 
   const countByStatut = useCallback((s: FactureStatut) =>
     userFactures.filter(f => f.statut === s).length, [userFactures]);
+
+  // Handlers Sélection / Édition Facture
+  const handleSelectFacture = (f: Facture) => {
+    setSelected(f);
+    setEditFactMontantHt(String(f.montantHt));
+    setEditFactTva(String(f.tauxTva));
+    setEditFactEcheance(f.dateEcheance ? f.dateEcheance.slice(0, 10) : '');
+    setEditFactDesc(f.description || '');
+    setEditFactStatut(f.statut === 'payee' ? 'payee' : 'envoyee');
+    setEncAmount(String(getSoldeRestant(f)));
+  };
+
+  const handleSaveEditFacture = async () => {
+    if (!selected) return;
+    const ht = Number(editFactMontantHt);
+    if (isNaN(ht) || ht <= 0) {
+      Alert.alert('Erreur', 'Veuillez saisir un montant Hors Taxe valide.');
+      return;
+    }
+    setSavingEditFact(true);
+    try {
+      await update(selected.id, {
+        montantHt: ht,
+        tauxTva: Number(editFactTva) || 19.25,
+        dateEcheance: editFactEcheance || undefined,
+        description: editFactDesc.trim() || undefined,
+        statut: editFactStatut,
+      });
+      setSelected(null);
+      await refetch();
+      Alert.alert('✅ Succès', 'Facture mise à jour avec succès.');
+    } catch (e) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    } finally {
+      setSavingEditFact(false);
+    }
+  };
+
+  const handleToggleStatutDirect = async (f: Facture, target: 'payee' | 'envoyee') => {
+    try {
+      await update(f.id, { statut: target });
+      setSelected(null);
+      await refetch();
+      Alert.alert('✅ Succès', target === 'payee' ? 'Facture marquée comme encaissée.' : 'Facture marquée comme impayée.');
+    } catch (e) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    }
+  };
+
+  const handleDeleteFacture = (f: Facture) => {
+    Alert.alert(
+      'Supprimer la facture',
+      `Voulez-vous supprimer définitivement la facture "${f.numeroFacture}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await supprimer(f.id);
+              setSelected(null);
+              await refetch();
+              Alert.alert('✅ Succès', 'Facture supprimée.');
+            } catch (e) {
+              Alert.alert('Erreur', extractErrorMessage(e));
+            }
+          },
+        },
+      ],
+    );
+  };
 
   // Handlers Création Facture
   const handleOpenCreateModal = () => {
@@ -175,7 +255,7 @@ export default function FacturationScreen() {
     return (
       <TouchableOpacity
         style={[s.card, { borderLeftColor: borderColor, borderLeftWidth: 4 }]}
-        onPress={() => { setSelected(f); setEncAmount(String(reste)); }}
+        onPress={() => handleSelectFacture(f)}
         activeOpacity={0.85}
       >
         <View style={s.cardHeader}>
@@ -204,18 +284,10 @@ export default function FacturationScreen() {
         <View style={s.progressBg}>
           <View style={[s.progressFill, {
             width: `${pct}%` as any,
-            backgroundColor: pct >= 100 ? C.green500 : pct >= 50 ? C.amber500 : C.red500,
+            backgroundColor: pct >= 80 ? C.green500 : pct >= 50 ? C.amber500 : C.red500,
           }]} />
         </View>
-
-        <View style={s.datesRow}>
-          <Text style={s.dateText}>Émission : {fmtD(f.dateEmission)}</Text>
-          {f.dateEcheance && (
-            <Text style={[s.dateText, f.statut === 'en_retard' && { color: C.red600, fontWeight: '600' }]}>
-              Échéance : {fmtD(f.dateEcheance)}
-            </Text>
-          )}
-        </View>
+        <Text style={[s.dateText, { marginTop: 4 }]}>{pct}% encaissé</Text>
       </TouchableOpacity>
     );
   }, []);
@@ -227,24 +299,21 @@ export default function FacturationScreen() {
         <View style={s.header}>
           <View>
             <Text style={s.title}>Facturation</Text>
-            <Text style={s.sub}>
-              {isLoading ? 'Chargement…' : `${userFactures.length} facture${userFactures.length !== 1 ? 's' : ''}`}
-            </Text>
+            <Text style={s.sub}>Honoraires et encaissements</Text>
           </View>
           <TouchableOpacity style={s.addBtn} onPress={handleOpenCreateModal} activeOpacity={0.8}>
-            <Plus color={C.gray900} size={18} />
-            <Text style={s.addBtnText}>Nouvelle Facture</Text>
+            <Plus color={C.gray900} size={16} />
+            <Text style={s.addBtnText}>Nouvelle facture</Text>
           </TouchableOpacity>
         </View>
 
         {/* KPIs */}
         <View style={s.kpiGrid}>
           {[
-            { label: 'Total facturé',     val: userTotalFacture  > 0 ? `${(userTotalFacture  / 1_000_000).toFixed(1)}M` : '0',  color: C.white },
-            { label: 'Total encaissé',    val: userTotalEncaisse > 0 ? `${(userTotalEncaisse / 1_000_000).toFixed(1)}M` : '0',  color: '#86efac' },
-            { label: 'Impayé',            val: userTotalImpaye   > 0 ? `${(userTotalImpaye   / 1_000_000).toFixed(1)}M` : '0',  color: '#fca5a5' },
-            { label: 'Taux recouvrement', val: `${userTaux}%`,
-              color: userTaux >= 75 ? '#86efac' : userTaux >= 50 ? C.amber400 : '#fca5a5' },
+            { label: 'TOTAL FACTURÉ',     val: fmtM(userTotalFacture),  color: C.white },
+            { label: 'ENCAISSÉ',          val: fmtM(userTotalEncaisse), color: C.green600 },
+            { label: 'IMPAYÉ',            val: fmtM(userTotalImpaye),   color: C.orange600 },
+            { label: 'RECOUVREMENT',      val: `${userTaux}%`,          color: C.amber400 },
           ].map(k => (
             <View key={k.label} style={s.kpiCard}>
               <Text style={s.kpiLabel}>{k.label}</Text>
@@ -254,43 +323,22 @@ export default function FacturationScreen() {
         </View>
       </SafeAreaView>
 
-      {/* Erreur */}
-      {error && !isLoading && (
-        <View style={s.errorBanner}>
-          <AlertTriangle color={C.red500} size={16} />
-          <Text style={s.errorText}>{error}</Text>
-          <TouchableOpacity onPress={refetch} style={s.retryBtn}>
-            <Text style={s.retryText}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Alert retard */}
-      {facturesRetard.length > 0 && (
-        <View style={s.alertCard}>
-          <AlertTriangle color={C.red600} size={20} />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={s.alertTitle}>{facturesRetard.length} facture(s) en retard</Text>
-            {facturesRetard.slice(0, 2).map(f => (
-              <Text key={f.id} style={s.alertItem}>
-                • {f.numeroFacture} : {fmtM(getSoldeRestant(f))} impayé
-              </Text>
-            ))}
-          </View>
-        </View>
-      )}
-
       {/* Search */}
       <View style={s.searchRow}>
         <View style={s.searchBox}>
           <Search color={C.gray400} size={16} />
           <TextInput
             style={s.searchInput}
-            placeholder="Numéro ou description..."
+            placeholder="Rechercher par N° de facture ou description..."
             placeholderTextColor={C.gray400}
             value={search}
             onChangeText={setSearch}
           />
+          {search ? (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <X color={C.gray400} size={16} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -320,31 +368,19 @@ export default function FacturationScreen() {
         data={filtered}
         keyExtractor={item => String(item.id)}
         renderItem={renderItem}
-        contentContainerStyle={s.list}
+        contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 80 }}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.amber500} />}
         ListEmptyComponent={
-          isLoading ? (
-            <View style={s.center}><ActivityIndicator color={C.amber500} size="large" /></View>
-          ) : (
+          !isLoading ? (
             <View style={s.center}>
               <DollarSign color={C.gray400} size={44} />
               <Text style={s.emptyText}>Aucune facture trouvée</Text>
-              {!search && (
-                <TouchableOpacity
-                  style={s.emptyAddBtn}
-                  onPress={handleOpenCreateModal}
-                  activeOpacity={0.8}
-                >
-                  <Plus color={C.gray900} size={16} />
-                  <Text style={s.emptyAddBtnText}>Créer une facture</Text>
-                </TouchableOpacity>
-              )}
             </View>
-          )
+          ) : null
         }
       />
 
-      {/* Floating Action Button (FAB) pour la création rapide de facture */}
+      {/* FAB */}
       <TouchableOpacity style={s.fab} onPress={handleOpenCreateModal} activeOpacity={0.85}>
         <Plus color={C.gray900} size={28} />
       </TouchableOpacity>
@@ -354,192 +390,113 @@ export default function FacturationScreen() {
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowCreateModal(false)}>
           <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
             <View style={s.handle} />
-            <Text style={s.sheetTitle}>Nouvelle Facture d'Honoraires</Text>
+            <Text style={s.sheetTitle}>Nouvelle Facture</Text>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={s.fieldLabel}>Dossier associé *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6 }}>
+                {userDossiers.map(d => (
+                  <TouchableOpacity
+                    key={d.id}
+                    onPress={() => setFactDossierId(Number(d.id))}
+                    style={[s.dossierChip, Number(factDossierId) === Number(d.id) && s.dossierChipActive]}
+                  >
+                    <Text style={[s.dossierChipText, Number(factDossierId) === Number(d.id) && s.dossierChipTextActive]}>
+                      {d.numeroAffaire} — {d.titre}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
 
-              {/* Dossier */}
-              <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Dossier / Affaire concernée *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {userDossiers.map(d => (
-                    <TouchableOpacity
-                      key={d.id}
-                      onPress={() => setFactDossierId(Number(d.id))}
-                      style={[s.dossierChip, Number(factDossierId) === Number(d.id) && s.dossierChipActive]}
-                    >
-                      <Text style={[s.dossierChipText, Number(factDossierId) === Number(d.id) && s.dossierChipTextActive]}>
-                        {d.numeroAffaire} — {d.titre}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
+              <Text style={s.fieldLabel}>Montant Hors Taxes (FCFA) *</Text>
+              <TextInput style={s.fieldInput} value={factMontantHt} onChangeText={setFactMontantHt} keyboardType="numeric" placeholder="ex: 500000" />
 
-              {/* Montant HT & TVA */}
-              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-                <View style={{ flex: 2 }}>
-                  <Text style={s.fieldLabel}>Montant Hors Taxe (FCFA) *</Text>
-                  <TextInput
-                    style={s.fieldInput}
-                    value={factMontantHt}
-                    onChangeText={setFactMontantHt}
-                    keyboardType="numeric"
-                    placeholder="ex: 500000"
-                    placeholderTextColor={C.gray400}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.fieldLabel}>TVA (%)</Text>
-                  <TextInput
-                    style={s.fieldInput}
-                    value={factTva}
-                    onChangeText={setFactTva}
-                    keyboardType="numeric"
-                    placeholder="19.25"
-                    placeholderTextColor={C.gray400}
-                  />
-                </View>
-              </View>
+              <Text style={s.fieldLabel}>Taux TVA (%)</Text>
+              <TextInput style={s.fieldInput} value={factTva} onChangeText={setFactTva} keyboardType="numeric" placeholder="19.25" />
 
-              {/* Calcul TTC aperçu */}
-              {factMontantHt && !isNaN(Number(factMontantHt)) ? (
-                <View style={s.calcSummaryBox}>
-                  <Text style={s.calcSummaryText}>
-                    Montant TTC estimé : <Text style={{ fontWeight: '800', color: C.amber900 }}>{fmtM(Number(factMontantHt) * (1 + (Number(factTva) || 19.25) / 100))}</Text>
-                  </Text>
-                </View>
-              ) : null}
+              <Text style={s.fieldLabel}>Date d'échéance (AAAA-MM-JJ)</Text>
+              <TextInput style={s.fieldInput} value={factEcheance} onChangeText={setFactEcheance} placeholder="2026-10-15" />
 
-              {/* Échéance */}
-              <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Date d'échéance (YYYY-MM-DD)</Text>
-                <TextInput
-                  style={s.fieldInput}
-                  value={factEcheance}
-                  onChangeText={setFactEcheance}
-                  placeholder="2026-10-15"
-                  placeholderTextColor={C.gray400}
-                />
-              </View>
+              <Text style={s.fieldLabel}>Description</Text>
+              <TextInput style={[s.fieldInput, { height: 75, textAlignVertical: 'top' }]} value={factDesc} onChangeText={setFactDesc} multiline numberOfLines={3} placeholder="ex: Honoraires de diligence..." />
 
-              {/* Description */}
-              <View style={{ marginBottom: 12 }}>
-                <Text style={s.fieldLabel}>Description des prestations</Text>
-                <TextInput
-                  style={[s.fieldInput, { height: 75, textAlignVertical: 'top' }]}
-                  value={factDesc}
-                  onChangeText={setFactDesc}
-                  multiline
-                  numberOfLines={3}
-                  placeholder="ex: Honoraires de diligence, Rédaction conclusions..."
-                  placeholderTextColor={C.gray400}
-                />
-              </View>
-
-              <TouchableOpacity
-                style={[s.saveBtn, creatingFact && { opacity: 0.6 }]}
-                onPress={handleCreateFacture}
-                disabled={creatingFact}
-                activeOpacity={0.85}
-              >
+              <TouchableOpacity style={[s.saveBtn, creatingFact && { opacity: 0.6 }]} onPress={handleCreateFacture} disabled={creatingFact}>
                 {creatingFact ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Créer la facture</Text>}
-              </TouchableOpacity>
-
-              <TouchableOpacity style={s.cancelBtn} onPress={() => setShowCreateModal(false)} activeOpacity={0.8}>
-                <Text style={s.cancelBtnText}>Annuler</Text>
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
-      {/* ── MODAL DÉTAILS / ENCAISSEMENT ── */}
+      {/* ── MODAL DÉTAILS / ÉDITION / ENCAISSEMENT ── */}
       {selected && (
         <Modal visible transparent animationType="slide" onRequestClose={() => setSelected(null)}>
           <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setSelected(null)}>
-            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+            <TouchableOpacity style={[s.sheet, { maxHeight: '90%' }]} activeOpacity={1} onPress={() => {}}>
               <View style={s.handle} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                 <View>
                   <Text style={s.sheetTitle}>{selected.numeroFacture}</Text>
                   <Text style={s.sheetSub}>Dossier #{selected.dossierId}</Text>
                 </View>
-                <TouchableOpacity style={s.closeBtn} onPress={() => setSelected(null)}>
-                  <X color={C.gray600} size={18} />
-                </TouchableOpacity>
+                <TouchableOpacity style={s.closeBtn} onPress={() => setSelected(null)}><X color={C.gray600} size={18} /></TouchableOpacity>
               </View>
 
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <View style={s.sheetAmtCard}>
-                  <View style={s.sheetAmtRow}>
-                    <Text style={s.sheetAmtLabel}>Montant HT :</Text>
-                    <Text style={s.sheetAmtVal}>{fmtM(Number(selected.montantHt))}</Text>
-                  </View>
-                  <View style={s.sheetAmtRow}>
-                    <Text style={s.sheetAmtLabel}>TVA ({selected.tauxTva}%) :</Text>
-                    <Text style={s.sheetAmtVal}>{fmtM(Number(selected.montantTtc) - Number(selected.montantHt))}</Text>
-                  </View>
-                  <View style={[s.sheetAmtRow, { borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 6, marginTop: 4 }]}>
-                    <Text style={[s.sheetAmtLabel, { fontWeight: '700', color: C.gray900 }]}>Total TTC :</Text>
-                    <Text style={[s.sheetAmtVal, { fontWeight: '700', color: C.gray900 }]}>{fmtM(Number(selected.montantTtc))}</Text>
-                  </View>
-                  <View style={s.sheetAmtRow}>
-                    <Text style={s.sheetAmtLabel}>Encaissé :</Text>
-                    <Text style={[s.sheetAmtVal, { color: C.green600 }]}>{fmtM(Number(selected.montantEncaisse))}</Text>
-                  </View>
-                  <View style={s.sheetAmtRow}>
-                    <Text style={[s.sheetAmtLabel, { fontWeight: '700' }]}>Reste dû :</Text>
-                    <Text style={[s.sheetAmtVal, { fontWeight: '700', color: getSoldeRestant(selected) > 0 ? C.red600 : C.green600 }]}>
-                      {fmtM(getSoldeRestant(selected))}
-                    </Text>
-                  </View>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <Text style={s.fieldLabel}>Statut de la facture *</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  <TouchableOpacity style={[s.modeChip, { flex: 1, paddingVertical: 10 }, editFactStatut === 'envoyee' && s.modeChipActive]} onPress={() => setEditFactStatut('envoyee')}>
+                    <Clock color={editFactStatut === 'envoyee' ? C.gray900 : C.gray500} size={16} /><Text style={[s.modeText, editFactStatut === 'envoyee' && s.modeTextActive]}> Impayée</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.modeChip, { flex: 1, paddingVertical: 10 }, editFactStatut === 'payee' && s.modeChipActive]} onPress={() => setEditFactStatut('payee')}>
+                    <CheckCircle color={editFactStatut === 'payee' ? C.gray900 : C.gray500} size={16} /><Text style={[s.modeText, editFactStatut === 'payee' && s.modeTextActive]}> Encaissée</Text>
+                  </TouchableOpacity>
                 </View>
 
-                {selected.statut === 'brouillon' && (
-                  <TouchableOpacity style={s.envoyerBtn} onPress={() => handleEnvoyer(selected)}>
-                    <Send color={C.white} size={16} />
-                    <Text style={s.envoyerBtnText}>Marquer comme envoyée</Text>
+                <View style={s.sheetAmtCard}>
+                  <View style={s.sheetAmtRow}><Text style={s.sheetAmtLabel}>Montant HT :</Text><Text style={s.sheetAmtVal}>{fmtM(Number(selected.montantHt))}</Text></View>
+                  <View style={s.sheetAmtRow}><Text style={s.sheetAmtLabel}>Reste dû :</Text><Text style={[s.sheetAmtVal, { fontWeight: '700', color: getSoldeRestant(selected) > 0 ? C.red600 : C.green600 }]}>{fmtM(getSoldeRestant(selected))}</Text></View>
+                </View>
+
+                <Text style={[s.fieldLabel, { marginTop: 10 }]}>Modifier les détails de la facture</Text>
+                <TextInput style={s.fieldInput} value={editFactMontantHt} onChangeText={setEditFactMontantHt} keyboardType="numeric" placeholder="Montant HT" />
+                <TextInput style={[s.fieldInput, { marginTop: 8 }]} value={editFactTva} onChangeText={setEditFactTva} keyboardType="numeric" placeholder="TVA %" />
+                <TextInput style={[s.fieldInput, { marginTop: 8 }]} value={editFactEcheance} onChangeText={setEditFactEcheance} placeholder="AAAA-MM-JJ" />
+                <TextInput style={[s.fieldInput, { marginTop: 8, height: 60 }]} value={editFactDesc} onChangeText={setEditFactDesc} multiline placeholder="Description..." />
+
+                <TouchableOpacity style={[s.saveBtn, { marginTop: 8 }]} onPress={handleSaveEditFacture}>
+                  {savingEditFact ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Enregistrer modifications</Text>}
+                </TouchableOpacity>
+
+                {selected.statut !== 'payee' ? (
+                  <TouchableOpacity style={[s.saveBtn, { backgroundColor: C.green600, marginTop: 8 }]} onPress={() => handleToggleStatutDirect(selected, 'payee')}>
+                    <Text style={[s.saveBtnText, { color: C.white }]}>Marquer comme encaissée (100%)</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[s.saveBtn, { backgroundColor: C.blue600, marginTop: 8 }]} onPress={() => handleToggleStatutDirect(selected, 'envoyee')}>
+                    <Text style={[s.saveBtnText, { color: C.white }]}>Marquer comme impayée</Text>
                   </TouchableOpacity>
                 )}
 
                 {getSoldeRestant(selected) > 0 && (
-                  <View style={s.encSection}>
-                    <Text style={s.encTitle}>Enregistrer un encaissement</Text>
-                    <TextInput
-                      style={s.fieldInput}
-                      placeholder="Montant (FCFA)"
-                      keyboardType="numeric"
-                      value={encAmount}
-                      onChangeText={setEncAmount}
-                    />
-                    <View style={s.modesRow}>
+                  <View style={{ marginTop: 14 }}>
+                    <Text style={s.encTitle}>Paiement partiel / Acompte</Text>
+                    <TextInput style={s.fieldInput} placeholder="Montant (FCFA)" keyboardType="numeric" value={encAmount} onChangeText={setEncAmount} />
+                    <View style={[s.modesRow, { marginVertical: 8 }]}>
                       {['virement', 'especes', 'cheque', 'mobile_money'].map(m => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[s.modeChip, encMode === m && s.modeChipActive]}
-                          onPress={() => setEncMode(m)}
-                        >
-                          <Text style={[s.modeText, encMode === m && s.modeTextActive]}>
-                            {m === 'especes' ? 'Espèces' : m === 'mobile_money' ? 'MoMo' : m.charAt(0).toUpperCase() + m.slice(1)}
-                          </Text>
+                        <TouchableOpacity key={m} style={[s.modeChip, encMode === m && s.modeChipActive]} onPress={() => setEncMode(m)}>
+                          <Text style={[s.modeText, encMode === m && s.modeTextActive]}>{m.charAt(0).toUpperCase() + m.slice(1)}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
-                    <TextInput
-                      style={[s.fieldInput, { marginTop: 8 }]}
-                      placeholder="Référence paiement (optionnel)"
-                      value={encRef}
-                      onChangeText={setEncRef}
-                    />
-                    <TouchableOpacity
-                      style={[s.saveBtn, encaisseLoading && { opacity: 0.6 }]}
-                      onPress={() => handleEncaisser(selected)}
-                      disabled={encaisseLoading}
-                    >
-                      {encaisseLoading ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Valider le paiement</Text>}
+                    <TouchableOpacity style={s.saveBtn} onPress={() => handleEncaisser(selected)} disabled={encaisseLoading}>
+                      {encaisseLoading ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Valider l'acompte</Text>}
                     </TouchableOpacity>
                   </View>
                 )}
+
+                <TouchableOpacity style={[s.saveBtn, { backgroundColor: '#fee2e2', marginTop: 14, borderWidth: 1, borderColor: '#fca5a5' }]} onPress={() => handleDeleteFacture(selected)}>
+                  <Text style={{ color: '#991b1b', fontWeight: '700' }}>Supprimer la facture</Text>
+                </TouchableOpacity>
               </ScrollView>
             </TouchableOpacity>
           </TouchableOpacity>

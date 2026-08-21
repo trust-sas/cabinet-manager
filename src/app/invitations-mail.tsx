@@ -8,12 +8,18 @@
 
 import { AppColors as C } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
+import { useAuth } from '@/hooks/useAuth';
 import { extractErrorMessage } from '@/lib/api';
 import {
   chargerDonneesInvitationsPersistantes,
   repondreInvitationApi,
   DossierInvitation,
 } from '@/services/dossierInvitations.service';
+import {
+  getMesDemandesPermissions,
+  repondreDemandeAccesDocument,
+  DocumentPermissionItem,
+} from '@/services/documents.service';
 import { useRouter } from 'expo-router';
 import {
   ArrowLeft,
@@ -25,8 +31,11 @@ import {
   UserCheck,
   UserX,
   X,
+  Lock,
+  ShieldAlert,
+  FileText,
 } from 'lucide-react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -44,6 +53,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type FilterStatut = 'all' | 'en_attente' | 'acceptee' | 'refusee';
+
+interface InboxItem {
+  kind: 'invitation' | 'permission';
+  id: string;
+  dossierId: number;
+  dossierNumero?: string | null;
+  title: string;
+  subtitle: string;
+  senderName: string;
+  senderContact: string;
+  statut: 'en_attente' | 'acceptee' | 'refusee' | 'autorisee';
+  createdAt?: string;
+  invRaw?: DossierInvitation;
+  permRaw?: DocumentPermissionItem;
+}
 
 function SwipeableCard({
   onDelete,
@@ -114,35 +138,43 @@ const formatDate = (dateStr?: string) => {
 export default function InvitationsMailScreen() {
   const router = useRouter();
   const { colors: K, isDark } = useTheme();
+  const { user } = useAuth();
+
   const [invitations, setInvitations] = useState<DossierInvitation[]>([]);
+  const [permissions, setPermissions] = useState<DocumentPermissionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatut>('all');
-  const [selectedInvModal, setSelectedInvModal] = useState<DossierInvitation | null>(null);
 
-  const fetchInvitations = useCallback(async () => {
+  const [selectedInvModal, setSelectedInvModal] = useState<DossierInvitation | null>(null);
+  const [selectedPermModal, setSelectedPermModal] = useState<DocumentPermissionItem | null>(null);
+
+  const fetchInbox = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await chargerDonneesInvitationsPersistantes();
-      setInvitations(data);
+      const [invData, permData] = await Promise.all([
+        chargerDonneesInvitationsPersistantes().catch(() => []),
+        getMesDemandesPermissions().catch(() => []),
+      ]);
+      setInvitations(invData);
+      setPermissions(permData);
     } catch (e) {
-      console.log('Erreur fetch invitations mail', e);
+      console.log('Erreur fetch invitations/permissions mail', e);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchInvitations();
-  }, [fetchInvitations]);
+    fetchInbox();
+  }, [fetchInbox]);
 
-  const handleResponse = async (inv: DossierInvitation, accepter: boolean) => {
+  const handleResponseInvitation = async (inv: DossierInvitation, accepter: boolean) => {
     try {
       const res = await repondreInvitationApi(inv.id, accepter);
       Alert.alert(
         accepter ? '✓ Invitation acceptée' : '✕ Invitation refusée',
         res.message,
       );
-      // Mettre à jour localement
       setInvitations(prev =>
         prev.map(item =>
           item.id === inv.id
@@ -150,23 +182,90 @@ export default function InvitationsMailScreen() {
             : item,
         ),
       );
+      if (selectedInvModal?.id === inv.id) {
+        setSelectedInvModal(null);
+      }
     } catch (e) {
       Alert.alert('Erreur', extractErrorMessage(e));
     }
   };
 
-  const handleDeleteItem = (id: string | number) => {
-    setInvitations(prev => prev.filter(i => i.id !== id));
+  const handleResponsePermission = async (perm: DocumentPermissionItem, autoriser: boolean) => {
+    try {
+      const res = await repondreDemandeAccesDocument(perm.id, autoriser);
+      Alert.alert(
+        autoriser ? '🔓 Accès autorisé' : '🚫 Accès refusé',
+        res.message || (autoriser ? 'Accès accordé au confrère demandeur.' : 'Demande refusée.'),
+      );
+      setPermissions(prev =>
+        prev.map(item =>
+          item.id === perm.id
+            ? { ...item, statut: autoriser ? 'autorisee' : 'refusee' }
+            : item,
+        ),
+      );
+      if (selectedPermModal?.id === perm.id) {
+        setSelectedPermModal(null);
+      }
+    } catch (e) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    }
   };
 
-  const filtered = invitations.filter(i => {
+  const allItems: InboxItem[] = useMemo(() => {
+    const invItems: InboxItem[] = invitations.map(inv => ({
+      kind: 'invitation',
+      id: `inv-${inv.id}`,
+      dossierId: inv.dossierId,
+      dossierNumero: inv.dossierNumero,
+      title: `📁 Dossier : ${inv.dossierNumero} — ${inv.dossierTitre}`,
+      subtitle: `Juridiction : ${inv.juridiction || 'Tribunal'}`,
+      senderName: inv.inviteurNom,
+      senderContact: inv.inviteurEmail || inv.destinataireTelephone || '',
+      statut: inv.statut,
+      createdAt: inv.createdAt,
+      invRaw: inv,
+    }));
+
+    const permItems: InboxItem[] = permissions.map(perm => ({
+      kind: 'permission',
+      id: `perm-${perm.id}`,
+      dossierId: perm.dossierId,
+      dossierNumero: perm.dossierNumero,
+      title: `🔒 Demande d'accès secret : ${perm.documentNom}`,
+      subtitle: `Affaire : ${perm.dossierNumero}`,
+      senderName: perm.demandeurNom || 'Confrère invité',
+      senderContact: perm.demandeurTelephone || perm.demandeurEmail || '',
+      statut: perm.statut,
+      createdAt: perm.createdAt,
+      permRaw: perm,
+    }));
+
+    return [...permItems, ...invItems].sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tb - ta;
+    });
+  }, [invitations, permissions]);
+
+  const handleDeleteItem = (id: string) => {
+    if (id.startsWith('inv-')) {
+      const realId = id.replace('inv-', '');
+      setInvitations(prev => prev.filter(i => String(i.id) !== realId));
+    } else if (id.startsWith('perm-')) {
+      const realId = id.replace('perm-', '');
+      setPermissions(prev => prev.filter(p => String(p.id) !== realId));
+    }
+  };
+
+  const filtered = allItems.filter(i => {
     if (filter === 'en_attente') return i.statut === 'en_attente';
-    if (filter === 'acceptee') return i.statut === 'acceptee';
+    if (filter === 'acceptee') return i.statut === 'acceptee' || i.statut === 'autorisee';
     if (filter === 'refusee') return i.statut === 'refusee';
     return true;
   });
 
-  const pendingCount = invitations.filter(i => i.statut === 'en_attente').length;
+  const pendingCount = allItems.filter(i => i.statut === 'en_attente').length;
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: K.bg }]} edges={['top', 'left', 'right']}>
@@ -182,7 +281,7 @@ export default function InvitationsMailScreen() {
           </View>
           <Text style={[s.sub, { color: K.textMuted }]}>Invitations et demandes d'accès aux dossiers</Text>
         </View>
-        <TouchableOpacity style={[s.refreshBtn, { backgroundColor: K.bgTertiary }]} onPress={fetchInvitations} activeOpacity={0.7}>
+        <TouchableOpacity style={[s.refreshBtn, { backgroundColor: K.bgTertiary }]} onPress={fetchInbox} activeOpacity={0.7}>
           <RefreshCw color={K.primary} size={18} />
         </TouchableOpacity>
       </View>
@@ -191,9 +290,9 @@ export default function InvitationsMailScreen() {
       <View style={[s.filtersContainer, { backgroundColor: K.bgSecondary }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filtersContent}>
           {[
-            { key: 'all', label: `Toutes (${invitations.length})` },
+            { key: 'all', label: `Toutes (${allItems.length})` },
             { key: 'en_attente', label: `En attente (${pendingCount})` },
-            { key: 'acceptee', label: 'Acceptées' },
+            { key: 'acceptee', label: 'Validées' },
             { key: 'refusee', label: 'Refusées' },
           ].map(({ key, label }) => (
             <TouchableOpacity
@@ -212,13 +311,13 @@ export default function InvitationsMailScreen() {
         </ScrollView>
       </View>
 
-      {/* ── Liste des emails d'invitations ── */}
+      {/* ── Liste des messages dans la boîte de réception ── */}
       <FlatList
         data={filtered}
-        keyExtractor={item => String(item.id)}
+        keyExtractor={item => item.id}
         contentContainerStyle={s.list}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={fetchInvitations} tintColor={C.amber500} />}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={fetchInbox} tintColor={C.amber500} />}
         ListEmptyComponent={
           isLoading ? (
             <View style={s.empty}>
@@ -227,70 +326,102 @@ export default function InvitationsMailScreen() {
           ) : (
             <View style={s.empty}>
               <Mail color={K.textMuted} size={48} />
-              <Text style={[s.emptyTitle, { color: K.text }]}>Aucun e-mail d'invitation</Text>
-              <Text style={[s.emptyDesc, { color: K.textMuted }]}>Votre boîte de réception d'invitations est vide.</Text>
+              <Text style={[s.emptyTitle, { color: K.text }]}>Boîte de réception vide</Text>
+              <Text style={[s.emptyDesc, { color: K.textMuted }]}>Aucune invitation ni demande d'accès en attente.</Text>
             </View>
           )
         }
-        renderItem={({ item: inv }) => {
-          const expiresAt = inv.createdAt ? new Date(new Date(inv.createdAt).getTime() + 7 * 86400000) : null;
-          const joursRestants = expiresAt ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400000)) : null;
+        renderItem={({ item }) => {
+          const isPerm = item.kind === 'permission';
+          const isPending = item.statut === 'en_attente';
 
           return (
-            <SwipeableCard onDelete={() => handleDeleteItem(inv.id)}>
+            <SwipeableCard onDelete={() => handleDeleteItem(item.id)}>
               <TouchableOpacity
-                style={[s.card, { backgroundColor: K.surface, borderColor: K.border }, inv.statut === 'en_attente' && { borderLeftWidth: 4, borderLeftColor: K.primary }]}
+                style={[
+                  s.card,
+                  { backgroundColor: K.surface, borderColor: K.border },
+                  isPending && { borderLeftWidth: 4, borderLeftColor: isPerm ? C.purple600 : K.primary },
+                ]}
                 activeOpacity={0.88}
-                onPress={() => setSelectedInvModal(inv)}
+                onPress={() => {
+                  if (isPerm && item.permRaw) {
+                    setSelectedPermModal(item.permRaw);
+                  } else if (!isPerm && item.invRaw) {
+                    setSelectedInvModal(item.invRaw);
+                  }
+                }}
               >
+                {/* Header Row */}
                 <View style={s.cardHeaderRow}>
-                  <View style={[s.iconWrap, { backgroundColor: K.primaryLight }]}>
-                    <Mail color={K.primary} size={20} />
+                  <View style={[s.iconWrap, { backgroundColor: isPerm ? C.purple100 : K.primaryLight }]}>
+                    {isPerm ? <Lock color={C.purple700} size={20} /> : <Mail color={K.primary} size={20} />}
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={s.senderRow}>
                       <Text style={[s.senderName, { color: K.text }]} numberOfLines={1}>
-                        {inv.inviteurNom}
+                        {isPerm ? `🔒 Demande de : ${item.senderName}` : item.senderName}
                       </Text>
-                      <Text style={[s.mailDate, { color: K.textMuted }]}>{formatDate(inv.createdAt)}</Text>
+                      <Text style={[s.mailDate, { color: K.textMuted }]}>{formatDate(item.createdAt)}</Text>
                     </View>
-                    <Text style={[s.senderEmail, { color: K.textMuted }]} numberOfLines={1}>{inv.inviteurEmail}</Text>
+                    <Text style={[s.senderEmail, { color: K.textMuted }]} numberOfLines={1}>
+                      {item.senderContact}
+                    </Text>
                   </View>
                 </View>
 
+                {/* Body Box */}
                 <View style={[s.mailBodyBox, { backgroundColor: K.bgSecondary, borderColor: K.border }]}>
-                  <Text style={[s.dossierTitle, { color: K.text }]}>📁 Dossier : {inv.dossierNumero} — {inv.dossierTitre}</Text>
-                  <Text style={[s.juridictionText, { color: K.textMuted }]}>Juridiction : {inv.juridiction || 'Tribunal'}</Text>
+                  <Text style={[s.dossierTitle, { color: K.text }]}>{item.title}</Text>
+                  <Text style={[s.juridictionText, { color: K.textMuted }]}>{item.subtitle}</Text>
                 </View>
 
-                {inv.statut === 'en_attente' ? (
+                {/* Status & Actions */}
+                {isPending ? (
                   <View style={{ marginTop: 8 }}>
                     <TouchableOpacity
-                      style={[s.tapToOpenRow, { backgroundColor: K.primaryLight, borderColor: K.primary }]}
-                      onPress={() => setSelectedInvModal(inv)}
+                      style={[
+                        s.tapToOpenRow,
+                        {
+                          backgroundColor: isPerm ? C.purple50 : K.primaryLight,
+                          borderColor: isPerm ? C.purple300 : K.primary,
+                        },
+                      ]}
+                      onPress={() => {
+                        if (isPerm && item.permRaw) {
+                          setSelectedPermModal(item.permRaw);
+                        } else if (!isPerm && item.invRaw) {
+                          setSelectedInvModal(item.invRaw);
+                        }
+                      }}
                       activeOpacity={0.85}
                     >
-                      <Mail color={K.primary} size={14} />
-                      <Text style={[s.tapToOpenText, { color: K.primary }]}>📩 Voir les détails de l'invitation →</Text>
+                      {isPerm ? <Lock color={C.purple700} size={14} /> : <Mail color={K.primary} size={14} />}
+                      <Text
+                        style={[
+                          s.tapToOpenText,
+                          { color: isPerm ? C.purple700 : K.primary },
+                        ]}
+                      >
+                        {isPerm ? "🔐 Ouvrir pour Autoriser / Refuser l'accès →" : "📩 Voir les détails de l'invitation →"}
+                      </Text>
                     </TouchableOpacity>
-
-                    {joursRestants !== null && (
-                      <View style={s.expiryRow}>
-                        <Clock color={joursRestants <= 1 ? K.danger : K.textMuted} size={11} />
-                        <Text style={[s.expiryText, { color: K.textMuted }, joursRestants <= 1 && { color: K.danger, fontWeight: '700' }]}>
-                          {joursRestants === 0
-                            ? 'Expire aujourd’hui'
-                            : joursRestants === 1
-                            ? 'Expire demain'
-                            : `Expire dans ${joursRestants} jours`}
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 ) : (
                   <View style={s.statusTag}>
-                    <Text style={[s.statusTagText, inv.statut === 'acceptee' ? { color: K.success } : { color: K.danger }]}>
-                      {inv.statut === 'acceptee' ? '✓ Invitation acceptée (Dossier rattaché)' : '✕ Invitation refusée'}
+                    <Text
+                      style={[
+                        s.statusTagText,
+                        item.statut === 'acceptee' || item.statut === 'autorisee'
+                          ? { color: K.success }
+                          : { color: K.danger },
+                      ]}
+                    >
+                      {item.statut === 'acceptee'
+                        ? '✓ Invitation acceptée (Dossier rattaché)'
+                        : item.statut === 'autorisee'
+                        ? '✓ Accès autorisé au document secret'
+                        : '✕ Demande refusée'}
                     </Text>
                   </View>
                 )}
@@ -300,7 +431,7 @@ export default function InvitationsMailScreen() {
         }}
       />
 
-      {/* ── POP-UP MODAL INTERACTIF SUR CLIC DE L'INVITATION DANS LE MAIL ── */}
+      {/* ── POP-UP MODAL INVITATION DOSSIER ── */}
       {selectedInvModal && (
         <Modal
           visible
@@ -350,20 +481,16 @@ export default function InvitationsMailScreen() {
                 <View style={s.modalInfoRow}>
                   <Text style={[s.modalInfoLabel, { color: K.textMuted }]}>Invité par :</Text>
                   <Text style={[s.modalInfoVal, { color: K.primary, fontWeight: '700' }]}>
-                    {selectedInvModal.inviteurNom} ({selectedInvModal.inviteurEmail})
+                    {selectedInvModal.inviteurNom}
                   </Text>
                 </View>
               </View>
 
               {selectedInvModal.statut === 'en_attente' ? (
-                <View style={{ gap: 10, marginTop: 18 }}>
+                <View style={{ gap: 10, marginTop: 16 }}>
                   <TouchableOpacity
                     style={[s.modalAcceptBtn, { backgroundColor: K.success }]}
-                    onPress={() => {
-                      const inv = selectedInvModal;
-                      setSelectedInvModal(null);
-                      handleResponse(inv, true);
-                    }}
+                    onPress={() => handleResponseInvitation(selectedInvModal, true)}
                     activeOpacity={0.85}
                   >
                     <UserCheck color="#ffffff" size={18} />
@@ -372,11 +499,7 @@ export default function InvitationsMailScreen() {
 
                   <TouchableOpacity
                     style={[s.modalRefuseBtn, { backgroundColor: K.danger }]}
-                    onPress={() => {
-                      const inv = selectedInvModal;
-                      setSelectedInvModal(null);
-                      handleResponse(inv, false);
-                    }}
+                    onPress={() => handleResponseInvitation(selectedInvModal, false)}
                     activeOpacity={0.85}
                   >
                     <UserX color="#ffffff" size={18} />
@@ -391,6 +514,100 @@ export default function InvitationsMailScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity style={[s.modalCloseFullBtn, { backgroundColor: K.bgTertiary }]} onPress={() => setSelectedInvModal(null)}>
+                    <Text style={[s.modalCloseFullText, { color: K.textSecondary }]}>Fermer</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {/* ── POP-UP MODAL PERMISSION DOCUMENT SECRET ── */}
+      {selectedPermModal && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedPermModal(null)}
+        >
+          <TouchableOpacity
+            style={s.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setSelectedPermModal(null)}
+          >
+            <TouchableOpacity
+              style={[s.modalCard, { backgroundColor: K.surface }]}
+              activeOpacity={1}
+              onPress={() => {}}
+            >
+              <View style={[s.modalHeader, { borderBottomColor: K.border }]}>
+                <View style={[s.modalIconWrap, { backgroundColor: C.purple100 }]}>
+                  <Lock color={C.purple700} size={24} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.modalTitle, { color: K.text }]}>Demande d'Accès Secret</Text>
+                  <Text style={[s.modalSub, { color: K.textMuted }]}>Autoriser le confrère à consulter la pièce</Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelectedPermModal(null)} style={s.modalCloseBtn}>
+                  <X color={K.textMuted} size={20} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={[s.modalBody, { backgroundColor: K.bgSecondary, borderColor: K.border }]}>
+                <View style={s.modalInfoRow}>
+                  <Text style={[s.modalInfoLabel, { color: K.textMuted }]}>Document protégé :</Text>
+                  <Text style={[s.modalInfoVal, { color: K.text }]} numberOfLines={2}>{selectedPermModal.documentNom}</Text>
+                </View>
+
+                <View style={s.modalInfoRow}>
+                  <Text style={[s.modalInfoLabel, { color: K.textMuted }]}>Dossier :</Text>
+                  <Text style={[s.modalInfoVal, { color: K.text }]}>{selectedPermModal.dossierNumero}</Text>
+                </View>
+
+                <View style={s.modalInfoRow}>
+                  <Text style={[s.modalInfoLabel, { color: K.textMuted }]}>Demandeur :</Text>
+                  <Text style={[s.modalInfoVal, { color: C.purple700, fontWeight: '700' }]}>
+                    {selectedPermModal.demandeurNom || 'Confrère invité'}
+                  </Text>
+                </View>
+
+                {selectedPermModal.demandeurTelephone ? (
+                  <View style={s.modalInfoRow}>
+                    <Text style={[s.modalInfoLabel, { color: K.textMuted }]}>Téléphone :</Text>
+                    <Text style={[s.modalInfoVal, { color: K.text }]}>{selectedPermModal.demandeurTelephone}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {selectedPermModal.statut === 'en_attente' ? (
+                <View style={{ gap: 10, marginTop: 16 }}>
+                  <TouchableOpacity
+                    style={[s.modalAcceptBtn, { backgroundColor: C.green600 }]}
+                    onPress={() => handleResponsePermission(selectedPermModal, true)}
+                    activeOpacity={0.85}
+                  >
+                    <Check color="#ffffff" size={18} />
+                    <Text style={s.modalAcceptText}>AUTORISER L'ACCÈS AU DOCUMENT</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[s.modalRefuseBtn, { backgroundColor: C.red600 }]}
+                    onPress={() => handleResponsePermission(selectedPermModal, false)}
+                    activeOpacity={0.85}
+                  >
+                    <X color="#ffffff" size={18} />
+                    <Text style={s.modalRefuseText}>REFUSER LA DEMANDE</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ marginTop: 16, alignItems: 'center', gap: 12 }}>
+                  <View style={[s.modalStatusBadge, selectedPermModal.statut === 'autorisee' ? { backgroundColor: K.successLight } : { backgroundColor: K.dangerLight }]}>
+                    <Text style={[s.modalStatusText, selectedPermModal.statut === 'autorisee' ? { color: K.success } : { color: K.danger }]}>
+                      {selectedPermModal.statut === 'autorisee' ? '✓ Accès autorisé au confrère' : '✕ Demande d\'accès refusée'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity style={[s.modalCloseFullBtn, { backgroundColor: K.bgTertiary }]} onPress={() => setSelectedPermModal(null)}>
                     <Text style={[s.modalCloseFullText, { color: K.textSecondary }]}>Fermer</Text>
                   </TouchableOpacity>
                 </View>

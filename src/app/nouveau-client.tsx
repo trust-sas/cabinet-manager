@@ -1,29 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Alert, ActivityIndicator, StatusBar, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Save, User, Building2 } from 'lucide-react-native';
 import { AppColors as C } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
 import { createClient } from '@/services/clients.service';
 import { ajouterAccèsClient } from '@/services/dossierInvitations.service';
 import { extractErrorMessage } from '@/lib/api';
 
 type ClientType = 'personne_physique' | 'personne_morale';
 
-function Field({ label, value, onChangeText, placeholder, keyboardType = 'default', required = false }: any) {
+interface FieldProps {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'phone-pad' | 'email-address';
+  required?: boolean;
+  onFocus?: () => void;
+  K: any;
+}
+
+function Field({ label, value, onChangeText, placeholder, keyboardType = 'default', required = false, onFocus, K }: FieldProps) {
   return (
     <View style={sf.field}>
-      <Text style={sf.label}>{label}{required && <Text style={{ color: C.red500 }}> *</Text>}</Text>
+      <Text style={[sf.label, { color: K.text }]}>{label}{required && <Text style={{ color: C.red500 }}> *</Text>}</Text>
       <TextInput
-        style={[sf.input, { borderColor: C.gray200 }]}
+        style={[sf.input, { backgroundColor: K.inputBg, borderColor: K.inputBorder, color: K.inputText }]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={C.gray400}
+        placeholderTextColor={K.inputPlaceholder}
         keyboardType={keyboardType}
+        onFocus={onFocus}
       />
     </View>
   );
@@ -31,7 +44,35 @@ function Field({ label, value, onChangeText, placeholder, keyboardType = 'defaul
 
 export default function NouveauClientScreen() {
   const router = useRouter();
+  const { colors: K, isDark } = useTheme();
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
   const [type, setType] = useState<ClientType>('personne_physique');
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardSpace(e.endCoordinates.height);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardSpace(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleScrollToBottom = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  };
 
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
@@ -82,31 +123,34 @@ export default function NouveauClientScreen() {
   };
 
   return (
-    <View style={sf.root}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: C.gray900 }}>
-        <View style={sf.header}>
+    <View style={[sf.root, { backgroundColor: K.bg }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <SafeAreaView edges={['top']} style={{ backgroundColor: K.bgSecondary }}>
+        <View style={[sf.header, { backgroundColor: K.bgSecondary }]}>
           <TouchableOpacity onPress={() => router.back()} style={sf.backBtn} activeOpacity={0.7}>
-            <ArrowLeft color={C.gray400} size={20} />
-            <Text style={sf.backText}>Retour</Text>
+            <ArrowLeft color={K.textMuted} size={20} />
+            <Text style={[sf.backText, { color: K.textMuted }]}>Retour</Text>
           </TouchableOpacity>
-          <Text style={sf.title}>Nouveau Client</Text>
-          <Text style={sf.sub}>Ajouter un client au répertoire</Text>
+          <Text style={[sf.title, { color: K.text }]}>Nouveau Client</Text>
+          <Text style={[sf.sub, { color: K.primary }]}>Ajouter un client au répertoire</Text>
         </View>
       </SafeAreaView>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
       >
         <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: 160, gap: 14 }}
-          showsVerticalScrollIndicator={false}
+          ref={scrollRef}
+          contentContainerStyle={{ flexGrow: 1, padding: 16, paddingBottom: keyboardSpace > 0 ? keyboardSpace + 140 : 120, gap: 14 }}
+          showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={true}
+          nestedScrollEnabled={true}
         >
           {/* Type selector */}
-          <View style={sf.card}>
-            <Text style={sf.sectionTitle}>Type de client</Text>
+          <View style={[sf.card, { backgroundColor: K.surface, borderColor: K.border }]}>
+            <Text style={[sf.sectionTitle, { color: K.text }]}>Type de client</Text>
             <View style={sf.typeGrid}>
               {([
                 { key: 'personne_physique', label: 'Particulier', Icon: User },
@@ -114,17 +158,17 @@ export default function NouveauClientScreen() {
               ] as { key: ClientType; label: string; Icon: any }[]).map(({ key, label, Icon }) => {
                 const isActive = type === key;
                 const color = key === 'personne_morale' ? C.blue600 : C.amber600;
-                const bg = key === 'personne_morale' ? C.blue50 : C.amber50;
+                const bg = key === 'personne_morale' ? (isDark ? 'rgba(37,99,235,0.15)' : C.blue50) : (isDark ? 'rgba(217,119,6,0.15)' : C.amber50);
                 const border = key === 'personne_morale' ? C.blue500 : C.amber500;
                 return (
                   <TouchableOpacity
                     key={key}
                     onPress={() => setType(key)}
-                    style={[sf.typeBtn, isActive && { borderColor: border, backgroundColor: bg }]}
+                    style={[sf.typeBtn, { backgroundColor: K.bgSecondary, borderColor: K.border }, isActive && { borderColor: border, backgroundColor: bg }]}
                     activeOpacity={0.8}
                   >
-                    <Icon color={isActive ? color : C.gray400} size={28} />
-                    <Text style={[sf.typeLabel, { color: isActive ? color : C.gray600 }]}>{label}</Text>
+                    <Icon color={isActive ? color : K.textMuted} size={28} />
+                    <Text style={[sf.typeLabel, { color: isActive ? color : K.textSecondary }]}>{label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -133,23 +177,23 @@ export default function NouveauClientScreen() {
 
           {type === 'personne_physique' ? (
             <>
-              <View style={sf.card}>
-                <Field label="Nom" value={nom} onChangeText={setNom} placeholder="ATANGANA" required />
-                <Field label="Prénom" value={prenom} onChangeText={setPrenom} placeholder="Michel" />
+              <View style={[sf.card, { backgroundColor: K.surface, borderColor: K.border }]}>
+                <Field label="Nom" value={nom} onChangeText={setNom} placeholder="ATANGANA" required K={K} />
+                <Field label="Prénom" value={prenom} onChangeText={setPrenom} placeholder="Michel" K={K} />
               </View>
-              <View style={sf.card}>
-                <Field label="Téléphone" value={tel} onChangeText={setTel} placeholder="+237 6XX XX XX XX" keyboardType="phone-pad" />
-                <Field label="Email" value={email} onChangeText={setEmail} placeholder="email@exemple.com" keyboardType="email-address" />
+              <View style={[sf.card, { backgroundColor: K.surface, borderColor: K.border }]}>
+                <Field label="Téléphone" value={tel} onChangeText={setTel} placeholder="+237 6XX XX XX XX" keyboardType="phone-pad" onFocus={handleScrollToBottom} K={K} />
+                <Field label="Email" value={email} onChangeText={setEmail} placeholder="email@exemple.com" keyboardType="email-address" onFocus={handleScrollToBottom} K={K} />
               </View>
             </>
           ) : (
             <>
-              <View style={sf.card}>
-                <Field label="Raison sociale" value={raisonSociale} onChangeText={setRaisonSociale} placeholder="Ex: CAMTEL SA" required />
+              <View style={[sf.card, { backgroundColor: K.surface, borderColor: K.border }]}>
+                <Field label="Raison sociale" value={raisonSociale} onChangeText={setRaisonSociale} placeholder="Ex: CAMTEL SA" required K={K} />
               </View>
-              <View style={sf.card}>
-                <Field label="Téléphone" value={telEnt} onChangeText={setTelEnt} placeholder="+237 6XX XX XX XX" keyboardType="phone-pad" />
-                <Field label="Email" value={emailEnt} onChangeText={setEmailEnt} placeholder="juridique@entreprise.cm" keyboardType="email-address" />
+              <View style={[sf.card, { backgroundColor: K.surface, borderColor: K.border }]}>
+                <Field label="Téléphone" value={telEnt} onChangeText={setTelEnt} placeholder="+237 6XX XX XX XX" keyboardType="phone-pad" onFocus={handleScrollToBottom} K={K} />
+                <Field label="Email" value={emailEnt} onChangeText={setEmailEnt} placeholder="juridique@entreprise.cm" keyboardType="email-address" onFocus={handleScrollToBottom} K={K} />
               </View>
             </>
           )}

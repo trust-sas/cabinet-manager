@@ -12,10 +12,10 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 function resolveApiBaseUrl(): string {
-  // 1. Web browser dynamic host (sur navigateur Web, joindre le port 8080 de l'hôte courant)
+  // 1. Web browser dynamic host (sur navigateur Web, joindre le port 3007 de l'hôte courant)
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname || 'localhost';
-    return `http://${host}:8080/api/v1`;
+    return `http://${host}:3007/api/v1`;
   }
 
   // 2. Variable d'env explicite (.env.local, EAS Build)
@@ -29,18 +29,18 @@ function resolveApiBaseUrl(): string {
     if (hostUri) {
       const hostIp = hostUri.split(':')[0];
       if (hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1') {
-        return `http://${hostIp}:8080/api/v1`;
+        return `http://${hostIp}:3007/api/v1`;
       }
     }
 
     if (Platform.OS === 'android') {
-      return 'http://10.0.2.2:8080/api/v1';
+      return 'http://10.0.2.2:3007/api/v1';
     }
 
-    return 'http://localhost:8080/api/v1';
+    return 'http://localhost:3007/api/v1';
   }
 
-  return 'http://192.168.100.132:8080/api/v1';
+  return 'http://192.168.100.132:3007/api/v1';
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

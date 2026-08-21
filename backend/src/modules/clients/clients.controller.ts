@@ -27,13 +27,13 @@ export class ClientsController {
   @RequirePermission('clients', 'read')
   @Get()
   async findAll(@Query() query: QueryClientsDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.findAll(query, user.cabinetId, user.email);
+    return this.clientsService.findAll(query, user);
   }
 
   @RequirePermission('clients', 'read')
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
-    return this.clientsService.findOne(id, user.cabinetId);
+    return this.clientsService.findOne(id, user);
   }
 
   @RequirePermission('clients', 'create')
@@ -49,13 +49,13 @@ export class ClientsController {
     @Body() dto: UpdateClientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.clientsService.update(id, dto, user.cabinetId);
+    return this.clientsService.update(id, dto, user);
   }
 
   @RequirePermission('clients', 'delete')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
-    await this.clientsService.delete(id, user.cabinetId);
+    await this.clientsService.delete(id, user);
   }
 }

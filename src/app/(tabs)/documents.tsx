@@ -14,7 +14,9 @@ import { useTheme } from '@/hooks/useTheme';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useDossiers } from '@/hooks/useDossiers';
 import { useAudiences } from '@/hooks/useAudiences';
-import { Document, getDocumentDownloadUrl } from '@/services/documents.service';
+import { useAuth } from '@/hooks/useAuth';
+import { extractErrorMessage } from '@/lib/api';
+import { Document, getDocumentDownloadUrl, getDocumentAccessStatus, demanderAccesDocument } from '@/services/documents.service';
 import { hasDossierAccess } from '@/services/dossierInvitations.service';
 import { apercuAvecAppCompatible, telechargerDansTelephone } from '@/lib/fileViewerManager';
 import { getAccessToken } from '@/lib/secureStorage';
@@ -29,9 +31,9 @@ import {
   Image as ImageIcon, Music, Paperclip, Plus, Scale, Scan, Search, Send, Shield, ShieldAlert,
   ShieldCheck, Sparkles, Trash2, Upload, X,
 } from 'lucide-react-native';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform,
+  ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform,
   RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native';
@@ -97,12 +99,26 @@ export default function DocumentsScreen() {
   const [mainTab, setMainTab] = useState<'ged' | 'ia'>('ged');
 
   // ── States GED ─────────────────────────────────────────────────────────────
+  const { user } = useAuth();
   const [searchQuery,   setSearchQuery]   = useState('');
   const [activeFilter,  setActiveFilter]  = useState<Confidentialite | 'all'>('all');
   const [uploading,     setUploading]     = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [previewDoc,    setPreviewDoc]    = useState<Document | null>(null);
   const [refreshing,    setRefreshing]    = useState(false);
+
+  // Modal Demande de Permission pour Document Secret
+  const [secretDocModal, setSecretDocModal] = useState<{
+    visible: boolean;
+    doc: Document | null;
+    hasPending: boolean;
+    loading: boolean;
+  }>({
+    visible: false,
+    doc: null,
+    hasPending: false,
+    loading: false,
+  });
 
   const { documents, isLoading, total, refetch, remove } = useDocuments({
     confidentialite: activeFilter !== 'all' ? activeFilter : undefined,
@@ -134,6 +150,28 @@ export default function DocumentsScreen() {
   ]);
   const [iaInput, setIaInput]   = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
+  const chatScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardSpace(e.endCoordinates.height);
+        setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardSpace(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // ── Handlers GED & Import Document ─────────────────────────────────────────
   const handlePickDocument = async () => {
@@ -256,21 +294,75 @@ export default function DocumentsScreen() {
     }
   }, [refetch]);
 
-  const handleDownload = useCallback(async (doc: Document) => {
-    if (downloadingId === doc.id) return;
-    setDownloadingId(doc.id);
-    try {
-      const url = getDocumentDownloadUrl(doc.id);
-      await telechargerDansTelephone(url, doc.nom, doc.typeDocument ?? 'application/pdf');
-    } finally {
-      setDownloadingId(null);
+  const checkSecretAccessAndExecute = useCallback(async (doc: Document, action: () => void) => {
+    if (doc.confidentialite !== 'secret') {
+      action();
+      return;
     }
-  }, [downloadingId]);
+
+    if (doc.creePar && Number(doc.creePar) === Number(user?.id)) {
+      action();
+      return;
+    }
+
+    try {
+      const status = await getDocumentAccessStatus(doc.id);
+      if (status.canAccess) {
+        action();
+        return;
+      }
+
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: status.hasPendingRequest,
+        loading: false,
+      });
+    } catch {
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: false,
+        loading: false,
+      });
+    }
+  }, [user]);
+
+  const handleDemanderAccesSecret = async () => {
+    if (!secretDocModal.doc) return;
+    setSecretDocModal(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await demanderAccesDocument(secretDocModal.doc.id);
+      setSecretDocModal(prev => ({ ...prev, loading: false, hasPending: true }));
+      Alert.alert(
+        'Demande transmise',
+        res.message || 'Votre demande d\'autorisation a été envoyée au créateur du dossier.',
+      );
+    } catch (e) {
+      setSecretDocModal(prev => ({ ...prev, loading: false }));
+      Alert.alert('Erreur', extractErrorMessage(e));
+    }
+  };
+
+  const handleDownload = useCallback(async (doc: Document) => {
+    checkSecretAccessAndExecute(doc, async () => {
+      if (downloadingId === doc.id) return;
+      setDownloadingId(doc.id);
+      try {
+        const url = getDocumentDownloadUrl(doc.id);
+        await telechargerDansTelephone(url, doc.nom, doc.typeDocument ?? 'application/pdf');
+      } finally {
+        setDownloadingId(null);
+      }
+    });
+  }, [downloadingId, checkSecretAccessAndExecute]);
 
   const handleApercu = useCallback(async (doc: Document) => {
-    const url = getDocumentDownloadUrl(doc.id);
-    await apercuAvecAppCompatible(url, doc.nom, doc.typeDocument ?? 'application/pdf');
-  }, []);
+    checkSecretAccessAndExecute(doc, async () => {
+      const url = getDocumentDownloadUrl(doc.id);
+      await apercuAvecAppCompatible(url, doc.nom, doc.typeDocument ?? 'application/pdf');
+    });
+  }, [checkSecretAccessAndExecute]);
 
   const handleDeleteDoc = useCallback((doc: Document) => {
     Alert.alert(
@@ -456,7 +548,11 @@ export default function DocumentsScreen() {
               const conf = CONFIDENTIALITE_CONFIG[doc.confidentialite as Confidentialite] ?? CONFIDENTIALITE_CONFIG.public;
               const MimeIcon = getMimeIcon(doc.typeDocument);
               return (
-                <TouchableOpacity style={[s.docCard, { backgroundColor: K.surface, borderColor: K.border }]} onPress={() => setPreviewDoc(doc)} activeOpacity={0.85}>
+                <TouchableOpacity
+                  style={[s.docCard, { backgroundColor: K.surface, borderColor: K.border }]}
+                  onPress={() => checkSecretAccessAndExecute(doc, () => setPreviewDoc(doc))}
+                  activeOpacity={0.85}
+                >
                   <View style={[s.docIconWrap, { backgroundColor: K.primaryLight }]}><MimeIcon color={K.primary} size={22} /></View>
                   <View style={{ flex: 1 }}>
                     <Text style={[s.docName, { color: K.text }]} numberOfLines={1}>{doc.nom}</Text>
@@ -500,7 +596,15 @@ export default function DocumentsScreen() {
           </ScrollView>
 
           {/* Liste des Messages IA */}
-          <ScrollView style={{ flex: 1, padding: 12 }} contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
+          <ScrollView
+            ref={chatScrollRef}
+            style={{ flex: 1, padding: 12 }}
+            contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+            onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+          >
             {messages.map(m => (
               <View key={m.id} style={[s.msgBubble, m.type === 'user' ? [s.msgUser, { backgroundColor: K.primary }] : [s.msgAssistant, { backgroundColor: K.surface, borderColor: K.border }]]}>
                 {m.type === 'assistant' && (
@@ -521,13 +625,24 @@ export default function DocumentsScreen() {
           </ScrollView>
 
           {/* Saisie Question IA */}
-          <View style={[s.inputBar, { backgroundColor: K.surface, borderTopColor: K.border }]}>
+          <View style={[
+            s.inputBar,
+            {
+              backgroundColor: K.surface,
+              borderTopColor: K.border,
+              paddingBottom: Platform.OS === 'ios' ? 24 : (keyboardSpace > 0 ? keyboardSpace + 10 : 12),
+            }
+          ]}>
             <TextInput
               style={[s.iaTextInput, { backgroundColor: K.bg, color: K.text }]}
               value={iaInput}
               onChangeText={setIaInput}
               placeholder="Posez une question à l'IA..."
               placeholderTextColor={K.textMuted}
+              onFocus={() => {
+                setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 150);
+              }}
+              onSubmitEditing={() => handleSendIaMessage()}
             />
             <TouchableOpacity style={s.sendBtn} onPress={() => handleSendIaMessage()} activeOpacity={0.8}>
               <Send color={isDark ? C.gray900 : '#ffffff'} size={18} />
@@ -553,10 +668,12 @@ export default function DocumentsScreen() {
                   <Download color={C.gray900} size={18} />
                   <Text style={[s.mainActionText, { color: C.gray900 }]}>Télécharger dans les fichiers du téléphone</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteDoc(previewDoc)}>
-                  <Trash2 color={K.danger} size={16} />
-                  <Text style={[s.deleteText, { color: K.danger }]}>Supprimer du cabinet</Text>
-                </TouchableOpacity>
+                {(previewDoc.creePar === user?.id || (previewDoc as any).cabinetId === user?.cabinetId) && (
+                  <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteDoc(previewDoc)}>
+                    <Trash2 color={K.danger} size={16} />
+                    <Text style={[s.deleteText, { color: K.danger }]}>Supprimer le document</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={[s.cancelBtn, { borderColor: K.border }]} onPress={() => setPreviewDoc(null)}>
                   <Text style={[s.cancelText, { color: K.textMuted }]}>Fermer</Text>
                 </TouchableOpacity>
@@ -697,6 +814,128 @@ export default function DocumentsScreen() {
                 <Text style={{ fontSize: 14, fontWeight: '500', color: K.textMuted }}>Annuler</Text>
               </TouchableOpacity>
             </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+      {/* ── MODAL PERMISSION DOCUMENT SECRET ── */}
+      <Modal
+        visible={secretDocModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 }}
+          activeOpacity={1}
+          onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: K.surface, borderRadius: 20, padding: 22,
+              width: '100%', maxWidth: 420, borderWidth: 1, borderColor: K.border,
+            }}
+          >
+            {/* Header with Icon */}
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{
+                width: 64, height: 64, borderRadius: 32,
+                backgroundColor: C.purple100, alignItems: 'center', justifyContent: 'center',
+                marginBottom: 12, borderWidth: 2, borderColor: C.purple300,
+              }}>
+                <ShieldAlert color={C.purple700} size={30} />
+              </View>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: C.purple50, paddingHorizontal: 10, paddingVertical: 4,
+                borderRadius: 20, borderWidth: 1, borderColor: C.purple200, marginBottom: 8,
+              }}>
+                <ShieldAlert color={C.purple600} size={13} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.purple700, letterSpacing: 0.5 }}>
+                  CONFIDENTIALITÉ : SECRET
+                </Text>
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: K.text, textAlign: 'center' }}>
+                Document classé Secret
+              </Text>
+            </View>
+
+            {/* Document Info Card */}
+            <View style={{
+              backgroundColor: K.bgTertiary, borderRadius: 12, padding: 14,
+              borderWidth: 1, borderColor: K.border, marginBottom: 16,
+            }}>
+              <Text style={{ fontSize: 12, color: K.textMuted, fontWeight: '600', marginBottom: 4 }}>
+                PIÈCE SOUMISE À RESTRICTION :
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: K.text }} numberOfLines={2}>
+                {secretDocModal.doc?.nom || 'Document secret'}
+              </Text>
+              {secretDocModal.doc?.tailleKo ? (
+                <Text style={{ fontSize: 12, color: K.textMuted, marginTop: 4 }}>
+                  Taille : {secretDocModal.doc.tailleKo} Ko
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Explication Message */}
+            <Text style={{ fontSize: 13, color: K.textSecondary, lineHeight: 20, textAlign: 'center', marginBottom: 18 }}>
+              {secretDocModal.hasPending
+                ? '⏳ Votre demande d\'autorisation a déjà été transmise au créateur du dossier. Elle est actuellement en attente de validation.'
+                : 'Ce document est protégé. Pour le consulter ou le télécharger, vous devez envoyer une demande de permission au créateur du dossier.'}
+            </Text>
+
+            {/* Actions */}
+            {secretDocModal.hasPending ? (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: K.bgSecondary, paddingVertical: 14, borderRadius: 12,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+                onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: K.text, fontSize: 14, fontWeight: '700' }}>
+                  Fermer (En attente de réponse)
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ gap: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: C.purple600, paddingVertical: 14, borderRadius: 12,
+                    alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
+                  }}
+                  onPress={handleDemanderAccesSecret}
+                  disabled={secretDocModal.loading}
+                  activeOpacity={0.85}
+                >
+                  {secretDocModal.loading ? (
+                    <ActivityIndicator color={C.white} size="small" />
+                  ) : (
+                    <>
+                      <Send color={C.white} size={16} />
+                      <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                        Demander la permission
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+                    justifyContent: 'center', backgroundColor: K.bgTertiary,
+                  }}
+                  onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: K.textSecondary, fontSize: 13, fontWeight: '600' }}>
+                    Annuler
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

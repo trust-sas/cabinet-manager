@@ -6,10 +6,10 @@
  *   3. Pop-up Calendrier pour la date de naissance
  *   4. Design 2026 : Thème adaptatif (dark/light), Keyboard fix Android, ErrorBanner, LoadingOverlay
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, StatusBar,
+  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, StatusBar, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -57,10 +57,37 @@ export default function RegisterScreen() {
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState('');
 
-  // Modale Pop-up Calendrier
   const [showCalendar, setShowCalendar] = useState(false);
   const [calYear, setCalYear] = useState(1990);
   const [calMonth, setCalMonth] = useState(0);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardSpace(e.endCoordinates.height);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardSpace(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleScrollToBottom = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  };
 
   // ── ÉTAPE 1 : Validation des infos & Envoi du code OTP par SMS ───────────
   const handleValidateFormAndSendCode = async () => {
@@ -319,11 +346,17 @@ export default function RegisterScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <SafeAreaView style={s.safe}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'android' ? 20 : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={[s.scroll, { flexGrow: 1, paddingBottom: keyboardSpace > 0 ? keyboardSpace + 160 : 120 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={true}
+            automaticallyAdjustKeyboardInsets={true}
+            nestedScrollEnabled={true}
+          >
 
             {/* Header */}
             <View style={s.header}>
@@ -400,6 +433,7 @@ export default function RegisterScreen() {
                     placeholderTextColor={K.inputPlaceholder}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    onFocus={handleScrollToBottom}
                   />
                 </View>
               </View>
@@ -431,6 +465,7 @@ export default function RegisterScreen() {
                     placeholder="6 caractères min."
                     placeholderTextColor={K.inputPlaceholder}
                     secureTextEntry={!showPwd}
+                    onFocus={handleScrollToBottom}
                   />
                   <TouchableOpacity onPress={() => setShowPwd(!showPwd)} style={{ padding: 4 }}>
                     {showPwd ? <EyeOff color={K.textMuted} size={18} /> : <Eye color={K.textMuted} size={18} />}
@@ -450,6 +485,7 @@ export default function RegisterScreen() {
                     placeholder="Répétez le mot de passe"
                     placeholderTextColor={K.inputPlaceholder}
                     secureTextEntry={!showConfirmPwd}
+                    onFocus={handleScrollToBottom}
                   />
                   <TouchableOpacity onPress={() => setShowConfirmPwd(!showConfirmPwd)} style={{ padding: 4 }}>
                     {showConfirmPwd ? <EyeOff color={K.textMuted} size={18} /> : <Eye color={K.textMuted} size={18} />}

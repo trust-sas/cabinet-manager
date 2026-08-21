@@ -8,6 +8,7 @@ import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList,
   Modal, ScrollView, Linking, ActivityIndicator, RefreshControl, StatusBar, Alert,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -45,11 +46,7 @@ export default function ClientsScreen() {
   });
 
   const { dossiers } = useDossiers({ pageSize: 100 });
-  const userDossierClientIds = dossiers
-    .filter(d => hasDossierAccess(Number(d.id)))
-    .map(d => Number(d.clientId));
-
-  const userClients = clients.filter(c => hasClientAccess(Number(c.id), userDossierClientIds));
+  const userClients = clients;
 
   const initials = (c: Client) => {
     const parts = c.nomComplet.trim().split(' ');
@@ -271,10 +268,20 @@ export default function ClientsScreen() {
       {/* Modal Édition Client */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)}>
         <TouchableOpacity style={s.modalOverlay} onPress={() => setShowEditModal(false)} activeOpacity={1}>
-          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
-            <View style={[s.sheetHandle, { backgroundColor: K.border }]} />
-            <Text style={[s.modalTitle, { color: K.text }]}>Modifier le client</Text>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+              <View style={[s.sheetHandle, { backgroundColor: K.border }]} />
+              <Text style={[s.modalTitle, { color: K.text }]}>Modifier le client</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 300 }}
+              >
               <View style={{ marginBottom: 12 }}>
                 <Text style={[s.inputLabel, { color: K.textSecondary }]}>Nom complet *</Text>
                 <TextInput
@@ -325,8 +332,9 @@ export default function ClientsScreen() {
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
     </View>
   );
 }

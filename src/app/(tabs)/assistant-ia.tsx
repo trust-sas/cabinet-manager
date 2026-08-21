@@ -25,10 +25,11 @@ import {
   Smile,
   X,
 } from 'lucide-react-native';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -74,7 +75,28 @@ export default function AssistantIAScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
   const listRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardSpace(e.endCoordinates.height);
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardSpace(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const filteredDossiers = userDossiers.filter(
     (d) =>
@@ -188,29 +210,8 @@ export default function AssistantIAScreen() {
     }
   };
 
-  const renderContent = (text: string) => {
-    const parts = text.split('**');
-    return (
-      <Text style={{ fontSize: 15, color: K.text, lineHeight: 23 }}>
-        {parts.map((p, i) =>
-          i % 2 === 0 ? (
-            p
-          ) : (
-            <Text key={i} style={{ fontWeight: '700' }}>
-              {p}
-            </Text>
-          ),
-        )}
-      </Text>
-    );
-  };
-
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: K.bg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={90}
-    >
+    <View style={{ flex: 1, backgroundColor: K.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <SafeAreaView edges={['top']} style={{ backgroundColor: K.bgSecondary }}>
         {/* Header */}
@@ -251,12 +252,16 @@ export default function AssistantIAScreen() {
                   </Text>
                 )}
               </View>
-              <ChevronDown color={K.primary} size={20} style={{ transform: [{ rotate: showSelector ? '180deg' : '0deg' }] }} />
+              <ChevronDown color={K.textMuted} size={18} />
             </TouchableOpacity>
 
             {selectedDossier && (
-              <TouchableOpacity style={{ backgroundColor: K.danger, borderRadius: 10, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }} onPress={deselectDossier} activeOpacity={0.7}>
-                <X color="#ffffff" size={16} />
+              <TouchableOpacity
+                style={{ backgroundColor: K.bgTertiary, borderWidth: 1, borderColor: K.border, borderRadius: 10, padding: 10 }}
+                onPress={deselectDossier}
+                activeOpacity={0.8}
+              >
+                <X color={K.textMuted} size={18} />
               </TouchableOpacity>
             )}
           </View>
@@ -314,7 +319,12 @@ export default function AssistantIAScreen() {
       </Modal>
 
       {/* Interface Chat */}
-      <View style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <View style={{ flex: 1 }}>
         <FlatList
           ref={listRef}
           data={messages}
@@ -346,7 +356,7 @@ export default function AssistantIAScreen() {
                   </View>
                 )}
                 <Text style={{ fontSize: 15, color: m.type === 'user' ? (isDark ? C.gray900 : '#ffffff') : K.text, lineHeight: 23 }}>
-                  {m.content.split('**').map((p, i) =>
+                  {m.content.split('**').map((p: string, i: number) =>
                     i % 2 === 0 ? p : <Text key={i} style={{ fontWeight: '700' }}>{p}</Text>
                   )}
                 </Text>
@@ -382,7 +392,14 @@ export default function AssistantIAScreen() {
         )}
 
         {/* Input Bar */}
-        <View style={{ backgroundColor: K.surface, borderTopWidth: 1, borderTopColor: K.border, paddingHorizontal: 14, paddingVertical: 10, paddingBottom: Platform.OS === 'ios' ? 24 : 10 }}>
+        <View style={{
+          backgroundColor: K.surface,
+          borderTopWidth: 1,
+          borderTopColor: K.border,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          paddingBottom: Platform.OS === 'ios' ? 24 : (keyboardSpace > 0 ? keyboardSpace + 10 : 12)
+        }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
             <TextInput
               style={{ flex: 1, backgroundColor: K.bg, borderWidth: 1, borderColor: K.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, color: K.text, maxHeight: 120 }}
@@ -391,6 +408,9 @@ export default function AssistantIAScreen() {
               placeholder={selectedDossier ? `Question sur ${selectedDossier.numeroAffaire}...` : 'Écrivez votre message...'}
               placeholderTextColor={K.textMuted}
               multiline
+              onFocus={() => {
+                setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 150);
+              }}
               onSubmitEditing={() => sendMessage()}
             />
             <TouchableOpacity
@@ -405,5 +425,6 @@ export default function AssistantIAScreen() {
         </View>
       </View>
     </KeyboardAvoidingView>
+  </View>
   );
 }

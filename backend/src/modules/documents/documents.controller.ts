@@ -45,6 +45,40 @@ export class DocumentsController {
   }
 
   @RequirePermission('documents', 'read')
+  @Get('permissions/mes-demandes')
+  getPermissionsForUser(@CurrentUser() user: AuthenticatedUser) {
+    return this.svc.getPermissionsForUser(user);
+  }
+
+  @RequirePermission('documents', 'read')
+  @Get(':id/access-status')
+  getAccessStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.svc.getAccessStatus(id, user);
+  }
+
+  @RequirePermission('documents', 'read')
+  @Post(':id/demander-acces')
+  demanderAcces(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.svc.demanderAcces(id, user);
+  }
+
+  @RequirePermission('documents', 'read')
+  @Post('permissions/:permissionId/repondre')
+  repondreDemandeAcces(
+    @Param('permissionId', ParseIntPipe) permissionId: number,
+    @Body('autoriser') autoriser: boolean,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.svc.repondreDemandeAcces(permissionId, autoriser, user);
+  }
+
+  @RequirePermission('documents', 'read')
   @Get(':id/download')
   async downloadFile(
     @Param('id', ParseIntPipe) id: number,

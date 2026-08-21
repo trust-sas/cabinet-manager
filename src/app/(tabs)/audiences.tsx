@@ -28,7 +28,7 @@ import {
 } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Modal, RefreshControl,
+  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, RefreshControl,
   ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,9 +75,9 @@ export default function CalendrierScreen() {
   const { audiences, isLoading, error, refetch, create: createAudience } = useAudiences({ lazy: false });
   const { dossiers } = useDossiers({ pageSize: 50 });
 
-  // Isolation stricte des données de l'utilisateur
-  const userDossiers = useMemo(() => dossiers.filter(d => hasDossierAccess(Number(d.id))), [dossiers]);
-  const userAudiences = useMemo(() => audiences.filter(a => hasAudienceAccess(Number(a.id), a.dossierId ? Number(a.dossierId) : undefined)), [audiences]);
+  // Données retournées et autorisées par le backend
+  const userDossiers = dossiers;
+  const userAudiences = audiences;
 
   // ── Calcul des 7 jours de la semaine affichée ─────────────────────────────
   const weekDays = useMemo(() => {
@@ -411,11 +411,21 @@ export default function CalendrierScreen() {
       {/* ── MODAL CRÉATION ÉVÉNEMENT / AUDIENCE ── */}
       <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowAddModal(false)}>
-          <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
-            <View style={[s.sheetHandle, { backgroundColor: K.border }]} />
-            <Text style={[s.sheetTitle, { color: K.text }]}>Ajouter au calendrier</Text>
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={[s.sheet, { backgroundColor: K.surface }]} activeOpacity={1} onPress={() => {}}>
+              <View style={[s.sheetHandle, { backgroundColor: K.border }]} />
+              <Text style={[s.sheetTitle, { color: K.text }]}>Ajouter au calendrier</Text>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
 
               {/* Sélection Catégorie */}
               <Text style={[s.fieldLabel, { color: K.text }]}>Type d'événement *</Text>
@@ -548,8 +558,9 @@ export default function CalendrierScreen() {
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
 
       {/* Pop-up Calendrier & Choix d'heure interactif (Date passée bloquée) */}
       <DateTimePickerModal

@@ -39,9 +39,9 @@ COPY package.json ./
 
 USER nestjs
 
-EXPOSE 8080
+EXPOSE 3007
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:8080/api/v1/health || exit 1
+  CMD wget -qO- http://localhost:3007/api/v1/health || exit 1
 
 CMD ["node", "dist/main"]

@@ -21,6 +21,7 @@ export interface Dossier {
   id: number;
   cabinetId: number;
   clientId: number;
+  client?: DossierClient;
   avocatResponsableId: number;
   numeroAffaire: string;
   titre: string;

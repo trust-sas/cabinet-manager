@@ -17,9 +17,13 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AccessTokenPayload, AuthenticatedUser } from '../../../common/interfaces/jwt-payload.interface';
 
+import { UsersService } from '../../users/users.service';
+
 @Injectable()
 export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') {
-  constructor() {
+  constructor(
+    private readonly usersService: UsersService,
+  ) {
     const secret = process.env.JWT_ACCESS_SECRET;
     if (!secret) {
       throw new Error("JWT_ACCESS_SECRET manquant dans les variables d'environnement.");
@@ -36,13 +40,31 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
    * Appelée automatiquement par Passport UNE FOIS la signature et
    * l'expiration validées. La valeur retournée devient `request.user`.
    */
-  validate(payload: AccessTokenPayload): AuthenticatedUser {
+  async validate(payload: AccessTokenPayload): Promise<AuthenticatedUser> {
+    let email = payload.email;
+    let telephone = payload.telephone;
+    let permissions = payload.permissions;
+
+    if (!email || !telephone || !permissions || permissions.length === 0) {
+      try {
+        const u = await this.usersService.findById(payload.sub);
+        if (u) {
+          if (!email && u.email) email = u.email;
+          if (!telephone && u.telephone) telephone = u.telephone;
+          if ((!permissions || permissions.length === 0) && (u as any).roleAcces?.permissions) {
+            permissions = (u as any).roleAcces.permissions;
+          }
+        }
+      } catch {}
+    }
+
     return {
       id: payload.sub,
       cabinetId: payload.cabinetId,
       role: payload.role,
-      permissions: payload.permissions,
-      email: payload.email,
+      permissions: permissions && Array.isArray(permissions) && permissions.length > 0 ? permissions : ['*:*:all'],
+      email,
+      telephone,
     };
   }
 }
