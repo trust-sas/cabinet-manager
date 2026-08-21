@@ -16,6 +16,12 @@ export class UpdateFactureDto {
   @IsOptional() @IsString()
   description?: string;
 
+  @IsOptional() @IsString()
+  statut?: string;
+
+  @IsOptional() @IsNumber() @Min(0)
+  montantEncaisse?: number;
+
   @IsOptional() @IsInt()
   versionConnue?: number;
 }

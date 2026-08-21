@@ -668,10 +668,12 @@ export default function DocumentsScreen() {
                   <Download color={C.gray900} size={18} />
                   <Text style={[s.mainActionText, { color: C.gray900 }]}>Télécharger dans les fichiers du téléphone</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteDoc(previewDoc)}>
-                  <Trash2 color={K.danger} size={16} />
-                  <Text style={[s.deleteText, { color: K.danger }]}>Supprimer du cabinet</Text>
-                </TouchableOpacity>
+                {(previewDoc.creePar === user?.id || (previewDoc as any).cabinetId === user?.cabinetId) && (
+                  <TouchableOpacity style={s.deleteBtn} onPress={() => handleDeleteDoc(previewDoc)}>
+                    <Trash2 color={K.danger} size={16} />
+                    <Text style={[s.deleteText, { color: K.danger }]}>Supprimer le document</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity style={[s.cancelBtn, { borderColor: K.border }]} onPress={() => setPreviewDoc(null)}>
                   <Text style={[s.cancelText, { color: K.textMuted }]}>Fermer</Text>
                 </TouchableOpacity>

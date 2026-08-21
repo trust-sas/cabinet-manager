@@ -21,6 +21,7 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 import {
   CreateOrganisationDto,
   UpdateOrganisationDto,
+  AjouterMembreDto,
   TraiterDemandeDto,
   PartagerDossierDto,
   PartagerClientDto,
@@ -94,11 +95,30 @@ export class OrganisationsService {
       });
     }
 
-    if (dto.description !== undefined) {
-      org.description = dto.description.trim() || null;
-    }
+    const nouveauNom = dto.nom ? dto.nom.trim() : nom;
+    if (nouveauNom && nouveauNom !== nom) {
+      const existe = await this.orgRepo.findOne({ where: { nom: nouveauNom, deletedAt: IsNull() } });
+      if (existe) {
+        throw new ConflictException({
+          error: { code: 'ORG_EXISTS', message: 'Une organisation porte déjà ce nom.', status: 409 },
+        });
+      }
+      const newDesc = dto.description !== undefined ? (dto.description.trim() || null) : org.description;
 
-    return this.orgRepo.save(org);
+      await this.orgRepo.query(`UPDATE organisations SET nom = $1, description = $2 WHERE nom = $3`, [nouveauNom, newDesc, nom]);
+      await this.orgRepo.query(`UPDATE organisation_membres SET organisation_nom = $1 WHERE organisation_nom = $2`, [nouveauNom, nom]).catch(() => {});
+      await this.orgRepo.query(`UPDATE organisation_dossiers SET organisation_nom = $1 WHERE organisation_nom = $2`, [nouveauNom, nom]).catch(() => {});
+      await this.orgRepo.query(`UPDATE organisation_clients SET organisation_nom = $1 WHERE organisation_nom = $2`, [nouveauNom, nom]).catch(() => {});
+      await this.orgRepo.query(`UPDATE organisation_demandes SET organisation_nom = $1 WHERE organisation_nom = $2`, [nouveauNom, nom]).catch(() => {});
+
+      const updated = await this.orgRepo.findOne({ where: { nom: nouveauNom } });
+      return updated!;
+    } else {
+      if (dto.description !== undefined) {
+        org.description = dto.description.trim() || null;
+      }
+      return this.orgRepo.save(org);
+    }
   }
 
   async supprimer(nom: string, user: AuthenticatedUser): Promise<void> {
@@ -230,30 +250,39 @@ export class OrganisationsService {
     };
   }
 
-  // ── GESTION DES MEMBRES ────────────────────────────────────────────────────
-
-  async ajouterMembre(nom: string, userId: number, chefUser: AuthenticatedUser): Promise<void> {
+  async ajouterMembre(nom: string, dto: AjouterMembreDto, chefUser: AuthenticatedUser): Promise<void> {
     await this.verifierChef(nom, chefUser);
 
-    const userToAdd = await this.userRepo.findOne({ where: { id: userId } });
+    let userToAdd: Utilisateur | null = null;
+    if (dto.userId) {
+      userToAdd = await this.userRepo.findOne({ where: { id: dto.userId } });
+    } else if (dto.identifiant) {
+      const clean = dto.identifiant.trim().toLowerCase();
+      const phoneClean = dto.identifiant.trim().replace(/\s+/g, '');
+      userToAdd = await this.userRepo.createQueryBuilder('u')
+        .where('LOWER(u.email) = :clean', { clean })
+        .orWhere('REPLACE(u.telephone, \' \', \'\') = :phoneClean', { phoneClean })
+        .getOne();
+    }
+
     if (!userToAdd) {
       throw new NotFoundException({
-        error: { code: 'USER_NOT_FOUND', message: 'Utilisateur introuvable.', status: 404 },
+        error: { code: 'USER_NOT_FOUND', message: 'Aucun utilisateur trouvé avec cet e-mail ou numéro de téléphone.', status: 404 },
       });
     }
 
-    const existe = await this.membreRepo.findOne({ where: { organisationNom: nom, userId } });
+    const existe = await this.membreRepo.findOne({ where: { organisationNom: nom, userId: userToAdd.id } });
     if (existe) {
       throw new ConflictException({
         error: { code: 'ALREADY_MEMBER', message: "Cet utilisateur est déjà membre de l'organisation.", status: 409 },
       });
     }
 
-    await this.membreRepo.save(this.membreRepo.create({ organisationNom: nom, userId, role: 'membre' }));
+    await this.membreRepo.save(this.membreRepo.create({ organisationNom: nom, userId: userToAdd.id, role: 'membre' }));
 
     await this.notificationsService.create(
       {
-        utilisateurId: userId,
+        utilisateurId: userToAdd.id,
         type: NotificationType.INVITATION,
         titre: `Vous avez rejoint "${nom}"`,
         message: `Vous avez été ajouté(e) à l'organisation "${nom}".`,
@@ -267,7 +296,7 @@ export class OrganisationsService {
 
     if (userId === chefUser.id) {
       throw new BadRequestException({
-        error: { code: 'CANNOT_REMOVE_SELF', message: 'Le chef ne peut pas se retirer lui-même.', status: 400 },
+        error: { code: 'CANNOT_REMOVE_SELF', message: "L'administrateur ne peut pas se retirer lui-même.", status: 400 },
       });
     }
 
@@ -284,7 +313,10 @@ export class OrganisationsService {
   // ── DEMANDES DE REJOINDRE ──────────────────────────────────────────────────
 
   async demanderRejoindre(nom: string, user: AuthenticatedUser): Promise<void> {
-    const org = await this.orgRepo.findOne({ where: { nom, deletedAt: IsNull() } });
+    const org = await this.orgRepo.findOne({
+      where: { nom, deletedAt: IsNull() },
+      relations: ['creator'],
+    });
     if (!org) {
       throw new NotFoundException({
         error: { code: 'ORG_NOT_FOUND', message: 'Organisation introuvable.', status: 404 },
@@ -311,14 +343,19 @@ export class OrganisationsService {
       this.joinRequestRepo.create({ organisationNom: nom, userId: user.id, statut: 'pending' }),
     );
 
+    const demandeur = await this.userRepo.findOne({ where: { id: user.id } });
+    const nomDemandeur = demandeur?.nom || demandeur?.email || 'Un utilisateur';
+    const targetCabinetId = org.creator?.cabinetId || user.cabinetId || 1;
+
     await this.notificationsService.create(
       {
         utilisateurId: org.creatorId,
         type: NotificationType.INVITATION,
         titre: `Demande d'adhésion à "${nom}"`,
-        message: `Un utilisateur demande à rejoindre votre organisation "${nom}".`,
+        message: `${nomDemandeur} demande à rejoindre votre organisation "${nom}".`,
+        entiteType: 'organisation',
       },
-      user.cabinetId,
+      targetCabinetId,
     );
   }
 
@@ -405,7 +442,7 @@ export class OrganisationsService {
     const isChef = await this.membreRepo.findOne({ where: { organisationNom: nom, userId: user.id, role: 'chef' } });
     if (link.partagePar !== user.id && !isChef) {
       throw new ForbiddenException({
-        error: { code: 'FORBIDDEN', message: 'Seul le propriétaire du dossier ou le chef peut le retirer.', status: 403 },
+        error: { code: 'FORBIDDEN', message: "Seul le propriétaire du dossier ou l'administrateur peut le retirer.", status: 403 },
       });
     }
 
@@ -445,7 +482,7 @@ export class OrganisationsService {
     const isChef = await this.membreRepo.findOne({ where: { organisationNom: nom, userId: user.id, role: 'chef' } });
     if (link.partagePar !== user.id && !isChef) {
       throw new ForbiddenException({
-        error: { code: 'FORBIDDEN', message: 'Seul le propriétaire ou le chef peut retirer ce client.', status: 403 },
+        error: { code: 'FORBIDDEN', message: "Seul le propriétaire ou l'administrateur peut retirer ce client.", status: 403 },
       });
     }
 
@@ -458,7 +495,7 @@ export class OrganisationsService {
     const membership = await this.membreRepo.findOne({ where: { organisationNom: nom, userId: user.id } });
     if (!membership || membership.role !== 'chef') {
       throw new ForbiddenException({
-        error: { code: 'NOT_CHEF', message: "Seul le chef de l'organisation peut effectuer cette action.", status: 403 },
+        error: { code: 'NOT_CHEF', message: "Seul l'administrateur de l'organisation peut effectuer cette action.", status: 403 },
       });
     }
   }

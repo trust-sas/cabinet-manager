@@ -22,8 +22,12 @@ export class UpdateOrganisationDto {
 }
 
 export class AjouterMembreDto {
-  @IsNotEmpty()
-  userId: number;
+  @IsOptional()
+  userId?: number;
+
+  @IsOptional()
+  @IsString()
+  identifiant?: string;
 }
 
 export class TraiterDemandeDto {

@@ -78,7 +78,7 @@ export class OrganisationsController {
     @Body() dto: AjouterMembreDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.orgService.ajouterMembre(nom, dto.userId, user);
+    return this.orgService.ajouterMembre(nom, dto, user);
   }
 
   /** DELETE /organisations/:nom/membres/:userId — Retirer un membre (chef only) */

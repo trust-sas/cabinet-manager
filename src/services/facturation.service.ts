@@ -68,6 +68,8 @@ export interface UpdateFactureDto {
   tauxTva?: number;
   dateEcheance?: string;
   description?: string;
+  statut?: FactureStatut | string;
+  montantEncaisse?: number;
   versionConnue?: number;
 }
 

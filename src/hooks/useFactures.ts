@@ -6,7 +6,7 @@ import { extractErrorMessage } from '@/lib/api';
 import {
   Facture, CreateFactureDto, UpdateFactureDto, QueryFactures,
   CreateEncaissementDto, Encaissement,
-  addEncaissement, createFacture, envoyerFacture, getEncaissements,
+  addEncaissement, createFacture, deleteFacture, envoyerFacture, getEncaissements,
   getFacture, getFactures, updateFacture,
 } from '@/services/facturation.service';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -29,6 +29,7 @@ interface UseFacturesResult {
   update: (id: number, dto: UpdateFactureDto) => Promise<Facture>;
   envoyer: (id: number) => Promise<Facture>;
   encaisser: (factureId: number, dto: CreateEncaissementDto) => Promise<Facture>;
+  supprimer: (id: number) => Promise<void>;
 }
 
 export function useFactures(options: UseFacturesOptions = {}): UseFacturesResult {
@@ -93,10 +94,16 @@ export function useFactures(options: UseFacturesOptions = {}): UseFacturesResult
     return updated;
   }, []);
 
+  const supprimer = useCallback(async (id: number): Promise<void> => {
+    await deleteFacture(id);
+    setFactures(prev => prev.filter(f => f.id !== id));
+    setTotal(t => Math.max(0, t - 1));
+  }, []);
+
   return {
     factures, isLoading, error, total,
     totalFacture, totalEncaisse, totalImpaye, tauxRecouvrement,
-    refetch: load, create, update, envoyer, encaisser,
+    refetch: load, create, update, envoyer, encaisser, supprimer,
   };
 }
 

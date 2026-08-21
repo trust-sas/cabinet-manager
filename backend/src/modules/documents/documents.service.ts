@@ -428,7 +428,7 @@ ${doc.description || 'Document officiel enregistré dans la base de données du 
     const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
 
     const qb = this.repo.createQueryBuilder('d')
-      .where('(d.cabinetId = :cabinetId OR d.confidentialite = \'public\' OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .where('(d.cabinetId = :cabinetId OR d.confidentialite = \'public\' OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\') OR d.dossierId IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('d.deletedAt IS NULL');
 
     if (query.dossierId)       qb.andWhere('d.dossierId = :dossierId', { dossierId: query.dossierId });
@@ -451,7 +451,7 @@ ${doc.description || 'Document officiel enregistré dans la base de données du 
 
     const doc = await this.repo.createQueryBuilder('d')
       .where('d.id = :id', { id })
-      .andWhere('(d.cabinetId = :cabinetId OR d.confidentialite = \'public\' OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .andWhere('(d.cabinetId = :cabinetId OR d.confidentialite = \'public\' OR d.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\') OR d.dossierId IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('d.deletedAt IS NULL')
       .getOne();
 
@@ -480,6 +480,16 @@ ${doc.description || 'Document officiel enregistré dans la base de données du 
 
   async remove(id: number, user: AuthenticatedUser): Promise<void> {
     const doc = await this.findOne(id, user);
+
+    const isCreator = doc.creePar && Number(doc.creePar) === Number(user.id);
+    const isCabinetOwner = Number(doc.cabinetId) === Number(user.cabinetId);
+
+    if (!isCreator && !isCabinetOwner) {
+      throw new ForbiddenException({
+        error: { code: 'FORBIDDEN', message: "Seule la personne qui a émis le document ou le cabinet peut le supprimer.", status: 403 },
+      });
+    }
+
     doc.deletedAt = new Date();
     await this.repo.save(doc);
     await this.journalService.enregistrer({

@@ -8,6 +8,7 @@ import { AppColors as C } from '@/constants/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import {
+  ajouterMembre,
   demanderRejoindre,
   getOrganisationDetails,
   OrganisationDetails,
@@ -32,7 +33,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, Modal, RefreshControl, ScrollView,
-  StyleSheet, Text, TouchableOpacity, View,
+  StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDossiers } from '@/hooks/useDossiers';
@@ -64,6 +65,9 @@ export default function OrganisationDetailScreen() {
   // Modals
   const [showShareDossierModal, setShowShareDossierModal] = useState(false);
   const [showShareClientModal, setShowShareClientModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [addMemberInput, setAddMemberInput] = useState('');
+  const [addingMember, setAddingMember] = useState(false);
 
   const fetchOrg = useCallback(async () => {
     if (!nom) return;
@@ -83,7 +87,10 @@ export default function OrganisationDetailScreen() {
   const handleRejoindre = async () => {
     try {
       await demanderRejoindre(nom);
-      Alert.alert('✅ Demande envoyée', 'Le chef de l\'organisation a été notifié de votre demande.');
+      Alert.alert(
+        "Demande d'adhésion envoyée",
+        `Vous avez fait une demande d'adhésion pour rejoindre l'organisation "${nom}". Une notification a été envoyée à l'administrateur.`,
+      );
     } catch (e: any) {
       Alert.alert('Erreur', extractErrorMessage(e));
     }
@@ -152,6 +159,25 @@ export default function OrganisationDetailScreen() {
     }
   };
 
+  const handleAddMember = async () => {
+    if (!nom || !addMemberInput.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir un e-mail ou numéro de téléphone.');
+      return;
+    }
+    setAddingMember(true);
+    try {
+      await ajouterMembre(nom, { identifiant: addMemberInput.trim() });
+      setAddMemberInput('');
+      setShowAddMemberModal(false);
+      fetchOrg();
+      Alert.alert('✅ Succès', 'Membre ajouté à l\'organisation.');
+    } catch (e: any) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
   const handlePartagerDossier = async (dossierId: number) => {
     try {
       await partagerDossier(nom, dossierId);
@@ -163,7 +189,7 @@ export default function OrganisationDetailScreen() {
   };
 
   const s = StyleSheet.create({
-    container: { flex: 1, backgroundColor: K.background },
+    container: { flex: 1, backgroundColor: K.bg },
     header: {
       backgroundColor: K.surface,
       paddingHorizontal: 16, paddingBottom: 0,
@@ -370,7 +396,12 @@ export default function OrganisationDetailScreen() {
               </View>
             ) : (
               org.dossiers.map((d) => (
-                <View key={d.id} style={s.card}>
+                <TouchableOpacity
+                  key={d.id}
+                  style={s.card}
+                  onPress={() => router.push({ pathname: '/affaire/[id]', params: { id: d.id } })}
+                  activeOpacity={0.8}
+                >
                   <View style={s.cardRow}>
                     <Text style={s.cardTitle} numberOfLines={1}>{d.titre}</Text>
                     <View style={s.badge}><Text style={s.badgeText}>{d.statut}</Text></View>
@@ -383,7 +414,7 @@ export default function OrganisationDetailScreen() {
                     <Text style={s.lockText}>
                       {d.estProprietaire
                         ? 'Vous êtes propriétaire de ce dossier'
-                        : 'Accès sur permission — demandez au propriétaire'}
+                        : `Partagé par ${d.proprietaireNom}`}
                     </Text>
                   </View>
 
@@ -395,7 +426,7 @@ export default function OrganisationDetailScreen() {
                       <Text style={s.actionBtnDangerText}>Retirer de l'organisation</Text>
                     </TouchableOpacity>
                   )}
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </View>
@@ -438,6 +469,12 @@ export default function OrganisationDetailScreen() {
           <View style={s.section}>
             <View style={s.sectionHeader}>
               <Text style={s.sectionTitle}>{org.membres.length} membre(s)</Text>
+              {isChef && (
+                <TouchableOpacity style={s.addBtn} onPress={() => setShowAddMemberModal(true)}>
+                  <UserPlus color="#fff" size={13} />
+                  <Text style={s.addBtnText}>Ajouter</Text>
+                </TouchableOpacity>
+              )}
             </View>
             {org.membres.map((m) => (
               <View key={m.userId} style={[s.card, { flexDirection: 'row', alignItems: 'center' }]}>
@@ -451,7 +488,7 @@ export default function OrganisationDetailScreen() {
                 </View>
                 <View style={[s.rolePill, m.role === 'chef' ? s.rolePillChef : s.rolePillMembre]}>
                   <Text style={m.role === 'chef' ? s.rolePillText : s.rolePillTextMembre}>
-                    {m.role === 'chef' ? '👑 Chef' : 'Membre'}
+                    {m.role === 'chef' ? 'Administrateur' : 'Membre'}
                   </Text>
                 </View>
                 {isChef && m.role !== 'chef' && (
@@ -529,6 +566,44 @@ export default function OrganisationDetailScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal — Ajouter un membre */}
+      <Modal visible={showAddMemberModal} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={s.modalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <Text style={s.modalTitle}>Ajouter un membre</Text>
+              <TouchableOpacity onPress={() => setShowAddMemberModal(false)}>
+                <X color={K.textMuted} size={20} />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: K.textMuted, marginBottom: 8 }}>
+              Entrez l'adresse e-mail ou le numéro de téléphone du membre :
+            </Text>
+            <View style={{ borderWidth: 1, borderColor: K.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 }}>
+              <TextInput
+                style={{ fontSize: 14, color: K.text }}
+                placeholder="ex: collegue@cabinet.com"
+                placeholderTextColor={K.textMuted}
+                autoCapitalize="none"
+                value={addMemberInput}
+                onChangeText={setAddMemberInput}
+              />
+            </View>
+            <TouchableOpacity
+              style={[s.joinBtn, { marginTop: 4 }]}
+              onPress={handleAddMember}
+              disabled={addingMember}
+            >
+              {addingMember ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={s.joinBtnText}>Ajouter à l'organisation</Text>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

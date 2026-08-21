@@ -78,7 +78,7 @@ export class DossiersService {
     const userPhoneClean = user.telephone ? user.telephone.trim().replace(/\s+/g, '') : '';
     const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
     qb.andWhere(
-      '(dossier.cabinetId = :cabinetId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))',
+      '(dossier.cabinetId = :cabinetId OR dossier.id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\') OR dossier.id IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId))',
       { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix },
     );
     qb.andWhere('dossier.deletedAt IS NULL');
@@ -128,7 +128,8 @@ export class DossiersService {
     user: AuthenticatedUser,
     scope: PermissionScope,
   ): Promise<ResultatPagine<Dossier>> {
-    let qb = this.dossierRepository.createQueryBuilder('dossier');
+    let qb = this.dossierRepository.createQueryBuilder('dossier')
+      .leftJoinAndSelect('dossier.client', 'client');
     qb = this.appliquerFiltrePortee(qb, user, scope);
 
     if (query.statut) {
@@ -150,7 +151,9 @@ export class DossiersService {
   }
 
   async findOne(id: number, user: AuthenticatedUser, scope: PermissionScope): Promise<Dossier> {
-    let qb = this.dossierRepository.createQueryBuilder('dossier').andWhere('dossier.id = :id', { id });
+    let qb = this.dossierRepository.createQueryBuilder('dossier')
+      .leftJoinAndSelect('dossier.client', 'client')
+      .andWhere('dossier.id = :id', { id });
     qb = this.appliquerFiltrePortee(qb, user, scope);
 
     const dossier = await qb.getOne();

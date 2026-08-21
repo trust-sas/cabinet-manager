@@ -48,11 +48,12 @@ import { OrganisationClient } from './modules/organisations/entities/organisatio
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST ?? 'localhost',
-      port: parseInt(process.env.DB_PORT ?? '5432', 10),
-      database: process.env.DB_NAME ?? 'cabinet_manager',
-      username: process.env.DB_USER ?? 'cm_app_user',
-      password: process.env.DB_PASSWORD,
+      url: process.env.DATABASE_URL || undefined,
+      host: process.env.DATABASE_URL ? undefined : (process.env.DB_HOST ?? 'localhost'),
+      port: process.env.DATABASE_URL ? undefined : parseInt(process.env.DB_PORT ?? '5432', 10),
+      database: process.env.DATABASE_URL ? undefined : (process.env.DB_NAME ?? 'cabinet_manager'),
+      username: process.env.DATABASE_URL ? undefined : (process.env.DB_USER ?? 'cm_app_user'),
+      password: process.env.DATABASE_URL ? undefined : process.env.DB_PASSWORD,
       entities: [
         Utilisateur,
         Cabinet,
@@ -77,7 +78,7 @@ import { OrganisationClient } from './modules/organisations/entities/organisatio
       ],
       synchronize: false,
       logging: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error'],
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : (process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false),
     }),
     UsersModule,
     AuthModule,

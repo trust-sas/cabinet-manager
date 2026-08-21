@@ -35,9 +35,15 @@ export class FacturationService {
 
   async createFacture(dto: CreateFactureDto, user: AuthenticatedUser): Promise<Facture> {
     let targetCabinetId = user.cabinetId;
+    let targetClientId = dto.clientId;
     if (dto.dossierId) {
       const dossier = await this.dossierRepo.findOne({ where: { id: dto.dossierId } });
-      if (dossier) targetCabinetId = dossier.cabinetId;
+      if (dossier) {
+        targetCabinetId = dossier.cabinetId;
+        if (!targetClientId || Number(targetClientId) <= 0) {
+          targetClientId = dossier.clientId;
+        }
+      }
     }
 
     const numeroFacture = await this.genererNumero(targetCabinetId);
@@ -47,7 +53,7 @@ export class FacturationService {
     const facture = this.factureRepo.create({
       cabinetId: targetCabinetId,
       dossierId: dto.dossierId,
-      clientId: dto.clientId,
+      clientId: targetClientId,
       numeroFacture,
       dateEmission: new Date(),
       dateEcheance: dto.dateEcheance ? new Date(dto.dateEcheance) : null,
@@ -55,7 +61,7 @@ export class FacturationService {
       tauxTva: taux,
       montantTtc: ttc,
       montantEncaisse: 0,
-      statut: FactureStatut.BROUILLON,
+      statut: FactureStatut.ENVOYEE,
       description: dto.description ?? null,
       version: 1,
       createdAt: new Date(),
@@ -76,7 +82,7 @@ export class FacturationService {
     const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
 
     const qb = this.factureRepo.createQueryBuilder('f')
-      .where('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .where('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\') OR f.dossierId IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('f.deletedAt IS NULL');
 
     if (query.dossierId) qb.andWhere('f.dossierId = :dossierId', { dossierId: query.dossierId });
@@ -98,7 +104,7 @@ export class FacturationService {
 
     const f = await this.factureRepo.createQueryBuilder('f')
       .where('f.id = :id', { id })
-      .andWhere('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\'))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
+      .andWhere('(f.cabinetId = :cabinetId OR f.dossierId IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\') OR f.dossierId IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId))', { cabinetId: user.cabinetId, userId: user.id, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix })
       .andWhere('f.deletedAt IS NULL')
       .getOne();
 
@@ -109,9 +115,6 @@ export class FacturationService {
   async updateFacture(id: number, dto: UpdateFactureDto, user: AuthenticatedUser): Promise<Facture> {
     const facture = await this.findOneFacture(id, user);
 
-    if (facture.statut !== FactureStatut.BROUILLON) {
-      throw new BadRequestException({ error: { code: 'BUSINESS_RULE', message: 'Seules les factures en brouillon peuvent être modifiées.', status: 422 } });
-    }
     if (dto.versionConnue !== undefined && dto.versionConnue !== facture.version) {
       throw new ConflictException({ error: { code: 'CONFLICT', message: `Version conflit (serveur: ${facture.version}).`, status: 409 } });
     }
@@ -119,12 +122,37 @@ export class FacturationService {
     const avant = { ...facture };
     if (dto.montantHt    !== undefined) facture.montantHt    = dto.montantHt;
     if (dto.tauxTva      !== undefined) facture.tauxTva      = dto.tauxTva;
-    if (dto.dateEcheance !== undefined) facture.dateEcheance = new Date(dto.dateEcheance);
+    if (dto.dateEcheance !== undefined) facture.dateEcheance = dto.dateEcheance ? new Date(dto.dateEcheance) : null;
     if (dto.description  !== undefined) facture.description  = dto.description;
 
     // Recalcul TTC
     facture.montantTtc = Number((facture.montantHt * (1 + facture.tauxTva / 100)).toFixed(2));
 
+    if (dto.statut !== undefined) {
+      const st = dto.statut.toLowerCase();
+      if (st === 'payee' || st === 'payée' || st === FactureStatut.PAYEE) {
+        facture.statut = FactureStatut.PAYEE;
+        facture.montantEncaisse = facture.montantTtc;
+      } else if (st === 'envoyee' || st === 'envoyée' || st === 'impayee' || st === 'impayée' || st === 'brouillon' || st === FactureStatut.ENVOYEE) {
+        facture.statut = FactureStatut.ENVOYEE;
+        facture.montantEncaisse = 0;
+      } else if (st === 'en_retard' || st === FactureStatut.EN_RETARD) {
+        facture.statut = FactureStatut.EN_RETARD;
+      } else if (st === 'partielle' || st === FactureStatut.PARTIELLE) {
+        facture.statut = FactureStatut.PARTIELLE;
+      }
+    }
+
+    if (dto.montantEncaisse !== undefined) {
+      facture.montantEncaisse = dto.montantEncaisse;
+      if (facture.montantEncaisse >= facture.montantTtc) {
+        facture.statut = FactureStatut.PAYEE;
+      } else if (facture.montantEncaisse > 0) {
+        facture.statut = FactureStatut.PARTIELLE;
+      }
+    }
+
+    facture.updatedAt = new Date();
     const saved = await this.factureRepo.save(facture);
     await this.journalService.enregistrer({
       cabinetId: user.cabinetId, utilisateurId: user.id,

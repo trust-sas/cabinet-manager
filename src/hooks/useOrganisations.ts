@@ -45,16 +45,20 @@ export function useOrganisations() {
     }
   }, [fetchMesOrgs]);
 
+  const fetchAll = useCallback(async () => {
+    await Promise.all([fetchMesOrgs(), fetchToutesOrgs()]);
+  }, [fetchMesOrgs, fetchToutesOrgs]);
+
   useEffect(() => {
-    fetchMesOrgs();
-  }, [fetchMesOrgs]);
+    fetchAll();
+  }, [fetchAll]);
 
   return {
     mesOrgs,
     toutesOrgs,
     isLoading,
     error,
-    refetch: fetchMesOrgs,
+    refetch: fetchAll,
     fetchToutesOrgs,
     creer,
   };

@@ -95,8 +95,12 @@ export const supprimerOrganisation = async (nom: string): Promise<void> => {
 
 // ── Membres ──────────────────────────────────────────────────────────────────
 
-export const ajouterMembre = async (nom: string, userId: number): Promise<void> => {
-  await api.post(`/organisations/${encodeURIComponent(nom)}/membres`, { userId });
+export const ajouterMembre = async (
+  nom: string,
+  payload: { userId?: number; identifiant?: string } | number,
+): Promise<void> => {
+  const body = typeof payload === 'number' ? { userId: payload } : payload;
+  await api.post(`/organisations/${encodeURIComponent(nom)}/membres`, body);
 };
 
 export const supprimerMembre = async (nom: string, userId: number): Promise<void> => {

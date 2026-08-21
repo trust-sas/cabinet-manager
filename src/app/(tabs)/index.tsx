@@ -214,12 +214,14 @@ export default function DashboardScreen() {
 
   // ── Modals & Drawers State ──
   const [showDrawer, setShowDrawer] = useState(false);
+  const [showOrgDrawer, setShowOrgDrawer] = useState(false);
   const [showNotifPopUp, setShowNotifPopUp] = useState(false);
   const [showCreateOrgModal, setShowCreateOrgModal] = useState(false);
   const [showEditOrgModal, setShowEditOrgModal] = useState(false);
   const [showJoinOrgModal, setShowJoinOrgModal] = useState(false);
   const [showShareDossierModal, setShowShareDossierModal] = useState(false);
   const [showShareClientModal, setShowShareClientModal] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
 
   // Formulaire Création Org
   const [newOrgNom, setNewOrgNom] = useState('');
@@ -228,8 +230,13 @@ export default function DashboardScreen() {
   const [createOrgError, setCreateOrgError] = useState<string | null>(null);
 
   // Formulaire Édition Org
+  const [editOrgNom, setEditOrgNom] = useState('');
   const [editOrgDesc, setEditOrgDesc] = useState('');
   const [updatingOrg, setUpdatingOrg] = useState(false);
+
+  // Formulaire Ajouter Membre
+  const [addMemberInput, setAddMemberInput] = useState('');
+  const [addingMember, setAddingMember] = useState(false);
 
   // Recherche Org à rejoindre
   const [searchJoinOrg, setSearchJoinOrg] = useState('');
@@ -253,6 +260,8 @@ export default function DashboardScreen() {
     tauxRecouvrement,
     refetch: refetchFactures,
     create: createFactureApi,
+    update: updateFactureApi,
+    supprimer: deleteFactureApi,
   } = useFactures();
 
   // Modal Nouvelle Facture (Chef)
@@ -263,6 +272,78 @@ export default function DashboardScreen() {
   const [factEcheance, setFactEcheance] = useState('');
   const [factDesc, setFactDesc] = useState('');
   const [creatingFact, setCreatingFact] = useState(false);
+
+  // Modal Édition Facture
+  const [selectedFacture, setSelectedFacture] = useState<Facture | null>(null);
+  const [showEditFactureModal, setShowEditFactureModal] = useState(false);
+  const [editFactMontantHt, setEditFactMontantHt] = useState('');
+  const [editFactTva, setEditFactTva] = useState('19.25');
+  const [editFactEcheance, setEditFactEcheance] = useState('');
+  const [editFactDesc, setEditFactDesc] = useState('');
+  const [editFactStatut, setEditFactStatut] = useState<'payee' | 'envoyee'>('envoyee');
+  const [savingFacture, setSavingFacture] = useState(false);
+
+  const handleOpenEditFacture = (f: Facture) => {
+    setSelectedFacture(f);
+    setEditFactMontantHt(String(f.montantHt));
+    setEditFactTva(String(f.tauxTva));
+    setEditFactEcheance(f.dateEcheance ? f.dateEcheance.slice(0, 10) : '');
+    setEditFactDesc(f.description || '');
+    setEditFactStatut(f.statut === 'payee' ? 'payee' : 'envoyee');
+    setShowEditFactureModal(true);
+  };
+
+  const handleSaveEditFacture = async () => {
+    if (!selectedFacture) return;
+    const ht = Number(editFactMontantHt);
+    if (isNaN(ht) || ht <= 0) {
+      Alert.alert('Erreur', 'Veuillez saisir un montant HT valide.');
+      return;
+    }
+    setSavingFacture(true);
+    try {
+      await updateFactureApi(selectedFacture.id, {
+        montantHt: ht,
+        tauxTva: Number(editFactTva) || 19.25,
+        dateEcheance: editFactEcheance || undefined,
+        description: editFactDesc.trim() || undefined,
+        statut: editFactStatut,
+      });
+      setShowEditFactureModal(false);
+      setSelectedFacture(null);
+      await refetchFactures();
+      Alert.alert('✅ Succès', 'Facture modifiée avec succès.');
+    } catch (e: any) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    } finally {
+      setSavingFacture(false);
+    }
+  };
+
+  const handleDeleteFacture = (f: Facture) => {
+    Alert.alert(
+      'Supprimer la facture',
+      `Voulez-vous supprimer définitivement la facture "${f.numeroFacture}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFactureApi(f.id);
+              setShowEditFactureModal(false);
+              setSelectedFacture(null);
+              await refetchFactures();
+              Alert.alert('✅ Succès', 'Facture supprimée.');
+            } catch (e: any) {
+              Alert.alert('Erreur', extractErrorMessage(e));
+            }
+          },
+        },
+      ],
+    );
+  };
 
   // Chargement des notifications & comptage boîte de réception
   const fetchNotifs = useCallback(async () => {
@@ -336,31 +417,53 @@ export default function DashboardScreen() {
 
   const handleOpenEditOrg = () => {
     if (!activeOrgDetails) return;
+    setEditOrgNom(activeOrgDetails.nom);
     setEditOrgDesc(activeOrgDetails.description || '');
     setShowEditOrgModal(true);
   };
 
   const handleUpdateOrgSubmit = async () => {
     if (!selectedOrgNom) return;
-    setUpdatingOrg(true);
-    try {
-      await modifierOrganisation(selectedOrgNom, { description: editOrgDesc.trim() });
-      setShowEditOrgModal(false);
-      await fetchActiveOrgDetails();
-      await refetchOrgs();
-      Alert.alert('✅ Succès', "Informations de l'organisation mises à jour.");
-    } catch (e: any) {
-      Alert.alert('Erreur', extractErrorMessage(e));
-    } finally {
-      setUpdatingOrg(false);
+    const nomTrimmed = editOrgNom.trim();
+    if (!nomTrimmed) {
+      Alert.alert('Erreur', "Le nom de l'organisation ne peut pas être vide.");
+      return;
     }
+
+    Alert.alert(
+      'Confirmer la modification',
+      `Souhaitez-vous enregistrer les modifications pour l'organisation "${nomTrimmed}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Enregistrer',
+          onPress: async () => {
+            setUpdatingOrg(true);
+            try {
+              const updated = await modifierOrganisation(selectedOrgNom, {
+                nom: nomTrimmed,
+                description: editOrgDesc.trim(),
+              });
+              setShowEditOrgModal(false);
+              setSelectedOrgNom(updated.nom || nomTrimmed);
+              await refetchOrgs();
+              Alert.alert('✅ Succès', "Informations de l'organisation mises à jour.");
+            } catch (e: any) {
+              Alert.alert('Erreur', extractErrorMessage(e));
+            } finally {
+              setUpdatingOrg(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleDeleteOrg = () => {
     if (!selectedOrgNom) return;
     Alert.alert(
       `Supprimer l'organisation "${selectedOrgNom}" ?`,
-      "Cette action supprimera l'organisation. Vos dossiers, clients et documents individuels restent intacts.",
+      "Cette action est irréversible. L'organisation et ses partages seront définitivement supprimés pour tous les membres.\n\nVos dossiers individuels restent intacts.",
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -369,6 +472,7 @@ export default function DashboardScreen() {
           onPress: async () => {
             try {
               await supprimerOrganisation(selectedOrgNom);
+              setShowOrgDrawer(false);
               setSelectedOrgNom(null);
               await refetchOrgs();
               Alert.alert('✅ Succès', "L'organisation a été supprimée.");
@@ -379,6 +483,27 @@ export default function DashboardScreen() {
         },
       ],
     );
+  };
+
+  const handleAddMemberSubmit = async () => {
+    if (!selectedOrgNom) return;
+    const identifiant = addMemberInput.trim();
+    if (!identifiant) {
+      Alert.alert('Erreur', 'Veuillez renseigner une adresse e-mail ou un numéro de téléphone.');
+      return;
+    }
+    setAddingMember(true);
+    try {
+      await ajouterMembre(selectedOrgNom, { identifiant });
+      setAddMemberInput('');
+      setShowAddMemberModal(false);
+      await fetchActiveOrgDetails();
+      Alert.alert('✅ Succès', `Le membre (${identifiant}) a été ajouté à l'organisation.`);
+    } catch (e: any) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    } finally {
+      setAddingMember(false);
+    }
   };
 
   const handleDemanderRejoindre = async (orgNom: string) => {
@@ -486,28 +611,47 @@ export default function DashboardScreen() {
 
   // Clic sur dossier dans l'organisation
   const handleOpenOrgDossier = (d: any) => {
-    if (d.estProprietaire || hasDossierAccess(Number(d.id))) {
-      router.push({ pathname: '/affaire/[id]', params: { id: d.id } });
-    } else {
-      Alert.alert(
-        '🔒 Accès Restreint',
-        `Ce dossier appartient à ${d.proprietaireNom}.\n\nPour consulter ses documents, une autorisation du propriétaire est requise.`,
-        [
-          { text: 'Fermer', style: 'cancel' },
-          {
-            text: "Demander l'accès",
-            onPress: () => {
-              Alert.alert('Demande transmise', `Une demande d'accès a été envoyée à ${d.proprietaireNom}.`);
-            },
-          },
-        ],
-      );
-    }
+    router.push({ pathname: '/affaire/[id]', params: { id: d.id } });
   };
+
+  // Calculs KPIs & Listes
+  const affairesActives = dossiers.filter((d) => d.statut !== 'Cloture').length;
+  const affairesCloturees = dossiers.filter((d) => d.statut === 'Cloture').length;
+  const facturesRetard = factures.filter((f) => f.statut === 'en_retard');
+  const affairesRecentes = dossiers.slice(0, 5);
+
+  const dossiersNonPartages = dossiers.filter(
+    (d) => !activeOrgDetails?.dossiers.some((od) => Number(od.id) === Number(d.id)),
+  );
+  const clientsNonPartages = clients.filter(
+    (c) => !activeOrgDetails?.clients.some((oc) => Number(oc.id) === Number(c.id)),
+  );
+
+  // Tous les dossiers facturables par le chef (ses dossiers + les dossiers partagés dans l'organisation)
+  const dossiersFacturation = [
+    ...dossiers.map((d) => ({
+      id: Number(d.id),
+      titre: d.titre,
+      numeroAffaire: d.numeroAffaire,
+      clientId: Number(d.clientId),
+      origine: 'Mon dossier',
+    })),
+    ...(activeOrgDetails?.dossiers || [])
+      .filter((od) => !dossiers.some((d) => Number(d.id) === Number(od.id)))
+      .map((od) => ({
+        id: Number(od.id),
+        titre: od.titre,
+        numeroAffaire: od.numeroAffaire,
+        clientId: Number(od.id),
+        origine: `Partagé par ${od.proprietaireNom || 'Organisation'}`,
+      })),
+  ];
 
   // Handlers Facturation (Chef)
   const handleOpenFactureModal = () => {
-    if (dossiers.length > 0) setFactDossierId(Number(dossiers[0].id));
+    if (dossiersFacturation.length > 0) {
+      setFactDossierId(Number(dossiersFacturation[0].id));
+    }
     setFactMontantHt('');
     setFactTva('19.25');
     const defaultEch = new Date();
@@ -522,12 +666,16 @@ export default function DashboardScreen() {
       Alert.alert('Erreur', 'Veuillez saisir un montant HT valide.');
       return;
     }
-    const dossierSelected = dossiers.find((d) => Number(d.id) === Number(factDossierId));
+    if (!factDossierId) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un dossier.');
+      return;
+    }
+    const dossierSelected = dossiersFacturation.find((d) => Number(d.id) === Number(factDossierId));
     setCreatingFact(true);
     try {
       await createFactureApi({
-        dossierId: factDossierId ?? 0,
-        clientId: dossierSelected ? Number(dossierSelected.clientId) : 1,
+        dossierId: factDossierId,
+        clientId: dossierSelected?.clientId || 1,
         montantHt: Number(factMontantHt),
         tauxTva: Number(factTva),
         dateEcheance: factEcheance || undefined,
@@ -545,26 +693,11 @@ export default function DashboardScreen() {
     }
   };
 
-  // Calculs KPIs
-  const affairesActives = dossiers.filter((d) => d.statut !== 'Cloture').length;
-  const affairesCloturees = dossiers.filter((d) => d.statut === 'Cloture').length;
-  const facturesRetard = factures.filter((f) => f.statut === 'en_retard');
-  const affairesRecentes = dossiers.slice(0, 5);
-
-  const dossiersNonPartages = dossiers.filter(
-    (d) => !activeOrgDetails?.dossiers.some((od) => Number(od.id) === Number(d.id)),
-  );
-  const clientsNonPartages = clients.filter(
-    (c) => !activeOrgDetails?.clients.some((oc) => Number(oc.id) === Number(c.id)),
-  );
-
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: K.background }]} edges={['top']}>
+    <SafeAreaView style={[s.container, { backgroundColor: K.bg }]} edges={['top']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={K.surface} />
 
-      {/* ── BARRE DU HAUT : Profil Utilisateur + Boîte de Réception + Cloche ── */}
       <View style={[s.topBar, { backgroundColor: K.surface, borderBottomColor: K.border }]}>
-        {/* Utilisateur : Avatar + Nom */}
         <TouchableOpacity
           style={s.userProfileHeader}
           onPress={() => setShowDrawer(true)}
@@ -583,29 +716,40 @@ export default function DashboardScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Actions : Boîte de réception + Cloche */}
         <View style={s.headerActions}>
-          {/* 📬 BOÎTE DE RÉCEPTION */}
           <TouchableOpacity
-            style={[s.iconBtn, { backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }]}
+            style={[
+              s.iconBtn,
+              { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' },
+            ]}
             onPress={() => router.push('/invitations-mail')}
             activeOpacity={0.7}
           >
-            <Mail color={pendingInvsCount > 0 ? C.amber500 : K.textMuted} size={19} />
+            <Mail
+              color={pendingInvsCount > 0 ? C.amber500 : K.textMuted}
+              size={18}
+            />
             {pendingInvsCount > 0 && (
-              <View style={s.badgeCounter}>
-                <Text style={s.badgeCounterText}>{pendingInvsCount > 9 ? '9+' : pendingInvsCount}</Text>
+              <View style={[s.badgeCounter, { backgroundColor: C.amber500 }]}>
+                <Text style={s.badgeCounterText}>
+                  {pendingInvsCount > 9 ? '9+' : pendingInvsCount}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
 
-          {/* 🔔 CLOCHE NOTIFICATIONS */}
           <TouchableOpacity
-            style={[s.iconBtn, { backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }]}
+            style={[
+              s.iconBtn,
+              { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' },
+            ]}
             onPress={() => setShowNotifPopUp(true)}
             activeOpacity={0.7}
           >
-            <Bell color={nonLues > 0 ? C.amber500 : K.textMuted} size={19} />
+            <Bell
+              color={nonLues > 0 ? '#ef4444' : K.textMuted}
+              size={18}
+            />
             {nonLues > 0 && (
               <View style={[s.badgeCounter, { backgroundColor: '#ef4444' }]}>
                 <Text style={s.badgeCounterText}>{nonLues > 99 ? '99+' : nonLues}</Text>
@@ -615,7 +759,6 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* ── ONGLETS DU DASHBOARD (Style Pilules Élégantes) ── */}
       <View style={[s.dashTabsBar, { backgroundColor: K.surface, borderBottomColor: K.border }]}>
         {dashboardTabs.map((tab) => {
           const active = activeTab === tab.id;
@@ -642,6 +785,11 @@ export default function DashboardScreen() {
               >
                 {tab.label}
               </Text>
+              {tab.id === 'organisation' && isChefInActiveOrg && (activeOrgDetails?.demandesEnAttente.length || 0) > 0 && (
+                <View style={s.badgeCounter}>
+                  <Text style={s.badgeCounterText}>{activeOrgDetails?.demandesEnAttente.length}</Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -664,13 +812,11 @@ export default function DashboardScreen() {
         }
         contentContainerStyle={{ paddingBottom: 60 }}
       >
-        {/* ════════════════════════════════════════════════════════════════════════
-            1. VUE D'ENSEMBLE (STYLE GRAPHIQUE ÉLÉGANT D'ORIGINE)
-           ════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'overview' && (
           <View style={s.sectionPad}>
-            {/* Cartes KPIs Réelles */}
-            <View style={s.kpiGrid}>
+            <DashboardAIChatBox />
+
+            <View style={[s.kpiGrid, { marginTop: 14 }]}>
               <View style={[s.kpiCard, { backgroundColor: K.surface, borderLeftColor: C.amber500 }]}>
                 <View style={[s.kpiIconWrap, { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : C.amber50 }]}>
                   <Briefcase color={C.amber600} size={18} />
@@ -696,7 +842,6 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            {/* Rappels & Alertes */}
             <Text style={[s.sectionTitle, { color: K.text, marginTop: 14, marginBottom: 8 }]}>
               Rappels & Notifications
             </Text>
@@ -730,7 +875,6 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            {/* Actions Rapides Métier */}
             <Text style={[s.sectionTitle, { color: K.text, marginTop: 18, marginBottom: 8 }]}>
               Actions rapides
             </Text>
@@ -786,7 +930,6 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Dossiers Récents */}
             <View style={[s.sectionHeaderRow, { marginTop: 18 }]}>
               <Text style={[s.sectionTitle, { color: K.text }]}>Dossiers récents</Text>
               <TouchableOpacity onPress={() => router.push('/affaires')}>
@@ -839,20 +982,11 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               ))
             )}
-
-            {/* Assistant IA Box */}
-            <View style={{ marginTop: 20 }}>
-              <DashboardAIChatBox />
-            </View>
           </View>
         )}
 
-        {/* ════════════════════════════════════════════════════════════════════════
-            2. ONGLET ORGANISATION (POUR TOUS LES UTILISATEURS)
-           ════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'organisation' && (
           <View style={s.sectionPad}>
-            {/* Cas A : L'utilisateur n'a AUCUNE organisation */}
             {mesOrgs.length === 0 ? (
               <View style={[s.emptyOrgCard, { backgroundColor: K.surface, borderColor: K.border }]}>
                 <View style={[s.emptyOrgIconWrap, { backgroundColor: C.amber500 + '15' }]}>
@@ -888,10 +1022,12 @@ export default function DashboardScreen() {
                 </View>
               </View>
             ) : (
-              /* Cas B : L'utilisateur A une organisation */
               <View>
-                {/* ── En-tête Organisation ── */}
-                <View style={[s.orgHeaderCard, { backgroundColor: K.surface, borderColor: K.border }]}>
+                <TouchableOpacity
+                  style={[s.orgHeaderCard, { backgroundColor: K.surface, borderColor: K.border }]}
+                  onPress={() => setShowOrgDrawer(true)}
+                  activeOpacity={0.75}
+                >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                     <View style={s.orgAvatarLarge}>
                       <Text style={s.orgAvatarLargeText}>{initials(selectedOrgNom || '')}</Text>
@@ -904,7 +1040,7 @@ export default function DashboardScreen() {
                         </Text>
                         <View style={[s.rolePill, isChefInActiveOrg ? s.rolePillChef : s.rolePillMembre]}>
                           <Text style={isChefInActiveOrg ? s.rolePillChefText : s.rolePillMembreText}>
-                            {isChefInActiveOrg ? '👑 Chef' : 'Membre'}
+                            {isChefInActiveOrg ? 'Administrateur' : 'Membre'}
                           </Text>
                         </View>
                       </View>
@@ -913,57 +1049,11 @@ export default function DashboardScreen() {
                         {activeOrgDetails?.description || `Créée le ${formatDate(activeOrgDetails?.createdAt)}`}
                       </Text>
                     </View>
+
+                    <ChevronDown color={K.textMuted} size={20} />
                   </View>
+                </TouchableOpacity>
 
-                  {/* Actions Chef sur l'organisation (Modifier / Supprimer) */}
-                  {isChefInActiveOrg && (
-                    <View style={s.orgChefActionRow}>
-                      <TouchableOpacity style={[s.chefBtn, { borderColor: K.border }]} onPress={handleOpenEditOrg}>
-                        <Edit2 color={C.amber500} size={13} />
-                        <Text style={[s.chefBtnText, { color: K.text }]}>Modifier</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[s.chefBtn, { borderColor: '#ef444440', backgroundColor: '#ef444410' }]}
-                        onPress={handleDeleteOrg}
-                      >
-                        <Trash2 color="#ef4444" size={13} />
-                        <Text style={[s.chefBtnText, { color: '#ef4444' }]}>Supprimer</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {/* Sélecteur si multi-organisations */}
-                  {mesOrgs.length > 1 && (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        {mesOrgs.map((o) => (
-                          <TouchableOpacity
-                            key={o.nom}
-                            style={[
-                              s.orgSwitchChip,
-                              { borderColor: K.border },
-                              selectedOrgNom === o.nom && { backgroundColor: C.amber500, borderColor: C.amber500 },
-                            ]}
-                            onPress={() => setSelectedOrgNom(o.nom)}
-                          >
-                            <Text
-                              style={[
-                                s.orgSwitchChipText,
-                                { color: K.textMuted },
-                                selectedOrgNom === o.nom && { color: '#fff', fontWeight: '700' },
-                              ]}
-                            >
-                              {o.nom}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  )}
-                </View>
-
-                {/* ── Sous-Onglets (Dossiers, Clients, Membres, Demandes) ── */}
                 <View style={s.subTabsRow}>
                   {[
                     { id: 'dossiers', label: 'Dossiers', count: activeOrgDetails?.dossiers.length },
@@ -988,7 +1078,6 @@ export default function DashboardScreen() {
                   })}
                 </View>
 
-                {/* ── 1. SOUS-ONGLET : DOSSIERS ── */}
                 {activeOrgSubTab === 'dossiers' && (
                   <View style={{ marginTop: 12 }}>
                     <View style={s.sectionHeaderRow}>
@@ -1048,9 +1137,7 @@ export default function DashboardScreen() {
                               <TouchableOpacity onPress={() => handleRetirerDossier(d.id)} style={{ padding: 6 }}>
                                 <Trash2 color="#ef4444" size={16} />
                               </TouchableOpacity>
-                            ) : (
-                              <Lock color={K.textMuted} size={14} />
-                            )}
+                            ) : null}
                           </View>
                         </TouchableOpacity>
                       ))
@@ -1058,7 +1145,6 @@ export default function DashboardScreen() {
                   </View>
                 )}
 
-                {/* ── 2. SOUS-ONGLET : CLIENTS ── */}
                 {activeOrgSubTab === 'clients' && (
                   <View style={{ marginTop: 12 }}>
                     <View style={s.sectionHeaderRow}>
@@ -1075,6 +1161,15 @@ export default function DashboardScreen() {
                       <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
                         <Users color={K.textMuted} size={30} />
                         <Text style={[s.emptyText, { color: K.textMuted }]}>Aucun client partagé</Text>
+                        {clientsNonPartages.length > 0 && (
+                          <TouchableOpacity
+                            style={[s.btnPrimary, { marginTop: 10 }]}
+                            onPress={() => setShowShareClientModal(true)}
+                          >
+                            <Plus color="#fff" size={14} />
+                            <Text style={s.btnPrimaryText}>Partager un client</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     ) : (
                       activeOrgDetails?.clients.map((c) => (
@@ -1082,11 +1177,14 @@ export default function DashboardScreen() {
                           <View style={s.clientAvatar}>
                             <Text style={s.clientAvatarText}>{initials(c.nomComplet)}</Text>
                           </View>
-                          <View style={{ flex: 1, marginLeft: 12 }}>
+
+                          <View style={{ flex: 1, marginLeft: 10 }}>
                             <Text style={[s.dossierTitle, { color: K.text }]}>{c.nomComplet}</Text>
-                            {c.telephone && <Text style={[s.dossierJur, { color: K.textMuted }]}>📞 {c.telephone}</Text>}
-                            {c.email && <Text style={[s.dossierJur, { color: K.textMuted }]}>✉️ {c.email}</Text>}
+                            <Text style={[s.dossierJur, { color: K.textMuted }]}>
+                              {c.telephone || c.email || 'Pas de contact'}
+                            </Text>
                           </View>
+
                           {c.estProprietaire && (
                             <TouchableOpacity onPress={() => handleRetirerClient(c.id)} style={{ padding: 6 }}>
                               <Trash2 color="#ef4444" size={16} />
@@ -1098,26 +1196,45 @@ export default function DashboardScreen() {
                   </View>
                 )}
 
-                {/* ── 3. SOUS-ONGLET : MEMBRES ── */}
                 {activeOrgSubTab === 'membres' && (
                   <View style={{ marginTop: 12 }}>
-                    <Text style={[s.sectionTitle, { color: K.text, marginBottom: 10 }]}>Membres de l'organisation</Text>
+                    <View style={[s.sectionHeaderRow, { marginBottom: 10 }]}>
+                      <Text style={[s.sectionTitle, { color: K.text }]}>
+                        {activeOrgDetails?.membres.length} membre(s)
+                      </Text>
+                      {isChefInActiveOrg && (
+                        <TouchableOpacity
+                          style={s.btnPrimarySmall}
+                          onPress={() => {
+                            setAddMemberInput('');
+                            setShowAddMemberModal(true);
+                          }}
+                        >
+                          <UserPlus color="#fff" size={13} />
+                          <Text style={s.btnPrimarySmallText}>Ajouter un membre</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
                     {activeOrgDetails?.membres.map((m) => (
                       <View key={m.userId} style={[s.memberRowCard, { backgroundColor: K.surface, borderColor: K.border }]}>
                         <View style={s.memberAvatar}>
                           <Text style={s.memberAvatarText}>{initials(m.nom)}</Text>
                         </View>
-                        <View style={{ flex: 1, marginLeft: 12 }}>
+
+                        <View style={{ flex: 1, marginLeft: 10 }}>
                           <Text style={[s.dossierTitle, { color: K.text }]}>{m.nom}</Text>
                           <Text style={[s.dossierJur, { color: K.textMuted }]}>
-                            {m.email || m.telephone || 'Membre'} · Depuis {formatDate(m.joinedAt)}
+                            {m.email || m.telephone || 'Membre'} · Rejoint le {formatDate(m.joinedAt)}
                           </Text>
                         </View>
+
                         <View style={[s.rolePill, m.role === 'chef' ? s.rolePillChef : s.rolePillMembre]}>
                           <Text style={m.role === 'chef' ? s.rolePillChefText : s.rolePillMembreText}>
-                            {m.role === 'chef' ? '👑 Chef' : 'Membre'}
+                            {m.role === 'chef' ? 'Administrateur' : 'Membre'}
                           </Text>
                         </View>
+
                         {isChefInActiveOrg && m.role !== 'chef' && (
                           <TouchableOpacity onPress={() => handleSupprimerMembre(m.userId, m.nom)} style={{ marginLeft: 8, padding: 4 }}>
                             <UserMinus color="#ef4444" size={16} />
@@ -1128,10 +1245,12 @@ export default function DashboardScreen() {
                   </View>
                 )}
 
-                {/* ── 4. SOUS-ONGLET : DEMANDES (CHEF ONLY) ── */}
                 {activeOrgSubTab === 'demandes' && isChefInActiveOrg && (
                   <View style={{ marginTop: 12 }}>
-                    <Text style={[s.sectionTitle, { color: K.text, marginBottom: 10 }]}>Demandes d'adhésion</Text>
+                    <Text style={[s.sectionTitle, { color: K.text, marginBottom: 8 }]}>
+                      Demandes d'adhésion
+                    </Text>
+
                     {activeOrgDetails?.demandesEnAttente.length === 0 ? (
                       <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
                         <CheckCircle2 color={C.green500} size={28} />
@@ -1144,8 +1263,11 @@ export default function DashboardScreen() {
                             <Text style={[s.dossierTitle, { color: K.text }]}>
                               {req.user?.nom || req.user?.email || `Utilisateur #${req.userId}`}
                             </Text>
-                            <Text style={[s.dossierJur, { color: K.textMuted }]}>Reçue le {formatDate(req.createdAt)}</Text>
+                            <Text style={[s.dossierJur, { color: K.textMuted }]}>
+                              Reçue le {formatDate(req.createdAt)}
+                            </Text>
                           </View>
+
                           <View style={{ flexDirection: 'row', gap: 6 }}>
                             <TouchableOpacity
                               style={[s.btnSmallAction, { backgroundColor: C.green500 }]}
@@ -1154,6 +1276,7 @@ export default function DashboardScreen() {
                               <Check color="#fff" size={14} />
                               <Text style={s.btnSmallActionText}>Accepter</Text>
                             </TouchableOpacity>
+
                             <TouchableOpacity
                               style={[s.btnSmallAction, { backgroundColor: '#ef444420', borderWidth: 1, borderColor: '#ef4444' }]}
                               onPress={() => handleTraiterDemande(req.id, 'rejected')}
@@ -1171,20 +1294,10 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* ════════════════════════════════════════════════════════════════════════
-            3. FACTURATION (CHEF UNIQUEMENT)
-           ════════════════════════════════════════════════════════════════════════ */}
         {activeTab === 'facturation' && isChefInAnyOrg && (
           <View style={s.sectionPad}>
-            <View style={s.sectionHeaderRow}>
-              <Text style={[s.agendaHeaderTitle, { color: K.text }]}>Facturation & Trésorerie</Text>
-              <TouchableOpacity style={s.btnPrimarySmall} onPress={handleOpenFactureModal}>
-                <Plus color="#fff" size={14} />
-                <Text style={s.btnPrimarySmallText}>Nouvelle Facture</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={[s.agendaHeaderTitle, { color: K.text }]}>Statistiques de Facturation</Text>
 
-            {/* Chiffres clés */}
             <View style={s.statsGrid}>
               <View style={[s.statBox, { backgroundColor: K.surface, borderColor: K.border }]}>
                 <Text style={[s.statNumber, { color: C.green500 }]}>
@@ -1192,72 +1305,70 @@ export default function DashboardScreen() {
                 </Text>
                 <Text style={[s.statDesc, { color: K.textMuted }]}>Encaissé</Text>
               </View>
+
               <View style={[s.statBox, { backgroundColor: K.surface, borderColor: K.border }]}>
                 <Text style={[s.statNumber, { color: '#ef4444' }]}>
                   {(totalImpaye || 0).toLocaleString('fr-FR')} F
                 </Text>
-                <Text style={[s.statDesc, { color: K.textMuted }]}>Impayés</Text>
+                <Text style={[s.statDesc, { color: K.textMuted }]}>Impayé</Text>
               </View>
+
               <View style={[s.statBox, { backgroundColor: K.surface, borderColor: K.border }]}>
-                <Text style={[s.statNumber, { color: C.amber500 }]}>{tauxRecouvrement || 0}%</Text>
+                <Text style={[s.statNumber, { color: C.amber500 }]}>
+                  {tauxRecouvrement || 0}%
+                </Text>
                 <Text style={[s.statDesc, { color: K.textMuted }]}>Recouvrement</Text>
               </View>
             </View>
 
-            {/* Liste Factures */}
-            <Text style={[s.sectionTitle, { color: K.text, marginTop: 16, marginBottom: 10 }]}>
-              Dernières factures émises
-            </Text>
+            <View style={[s.sectionHeaderRow, { marginTop: 10 }]}>
+              <Text style={[s.sectionTitle, { color: K.text }]}>Dernières factures</Text>
+              <TouchableOpacity style={s.btnPrimarySmall} onPress={handleOpenFactureModal}>
+                <Plus color="#fff" size={13} />
+                <Text style={s.btnPrimarySmallText}>Nouvelle facture</Text>
+              </TouchableOpacity>
+            </View>
 
             {factures.length === 0 ? (
               <View style={[s.emptyCard, { backgroundColor: K.surface }]}>
                 <Receipt color={K.textMuted} size={28} />
-                <Text style={[s.emptyText, { color: K.textMuted }]}>Aucune facture</Text>
+                <Text style={[s.emptyText, { color: K.textMuted }]}>Aucune facture enregistrée</Text>
               </View>
             ) : (
-              factures.slice(0, 8).map((f) => (
-                <View
+              factures.slice(0, 10).map((f) => (
+                <TouchableOpacity
                   key={f.id}
                   style={[s.factureRow, { backgroundColor: K.surface, borderColor: K.border }]}
+                  onPress={() => handleOpenEditFacture(f)}
+                  activeOpacity={0.85}
                 >
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={[s.dossierTitle, { color: K.text }]}>Facture N° {f.numeroFacture}</Text>
                     <Text style={[s.dossierJur, { color: K.textMuted }]}>
-                      {(Number(f.montantTtc) || 0).toLocaleString('fr-FR')} FCFA · Échéance {formatDate(f.dateEcheance)}
+                      Échéance {formatDate(f.dateEcheance || undefined)} · Solde restant : {(Number(getSoldeRestant(f)) || 0).toLocaleString('fr-FR')} F
                     </Text>
                   </View>
-                  <View
-                    style={[
-                      s.statusPill,
-                      f.statut === 'payee'
-                        ? { backgroundColor: C.green500 + '20' }
-                        : { backgroundColor: '#ef444420' },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        s.statusPillText,
-                        f.statut === 'payee' ? { color: C.green500 } : { color: '#ef4444' },
-                      ]}
-                    >
-                      {f.statut}
+
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={[s.dossierTitle, { color: C.amber500 }]}>
+                      {(Number(f.montantTtc) || 0).toLocaleString('fr-FR')} F
                     </Text>
+                    <View style={[s.statusPill, { backgroundColor: f.statut === 'payee' ? 'rgba(34,197,94,0.15)' : f.statut === 'en_retard' ? '#ef444420' : 'rgba(245,158,11,0.15)' }]}>
+                      <Text style={[s.statusPillText, { color: f.statut === 'payee' ? C.green500 : f.statut === 'en_retard' ? '#ef4444' : C.amber500 }]}>
+                        {f.statut === 'payee' ? 'Encaissée' : f.statut === 'en_retard' ? 'En retard' : f.statut === 'partielle' ? 'Partielle' : 'Impayée'}
+                      </Text>
+                    </View>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </View>
         )}
       </ScrollView>
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          MODALS (Création, Édition, Rejoindre, Partager, Notifications)
-         ════════════════════════════════════════════════════════════════════════ */}
-
-      {/* Modal Création Org */}
       <Modal visible={showCreateOrgModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: K.text }]}>Créer une Organisation</Text>
               <TouchableOpacity onPress={() => setShowCreateOrgModal(false)}>
@@ -1274,9 +1385,9 @@ export default function DashboardScreen() {
 
             <Text style={[s.inputLabel, { color: K.text }]}>Nom de l'organisation *</Text>
             <TextInput
-              style={[s.inputField, { backgroundColor: K.background, color: K.text, borderColor: K.border }]}
+              style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
               placeholder="ex: Cabinet-Avocats-Associes"
-              placeholderTextColor={K.textMuted}
+              placeholderTextColor={K.inputPlaceholder}
               value={newOrgNom}
               onChangeText={(t) => {
                 setNewOrgNom(t);
@@ -1286,9 +1397,9 @@ export default function DashboardScreen() {
 
             <Text style={[s.inputLabel, { color: K.text, marginTop: 12 }]}>Description (optionnel)</Text>
             <TextInput
-              style={[s.inputField, s.textArea, { backgroundColor: K.background, color: K.text, borderColor: K.border }]}
-              placeholder="Spécialité du cabinet ou description..."
-              placeholderTextColor={K.textMuted}
+              style={[s.inputField, s.textArea, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+              placeholder="Spécialité du cabinet..."
+              placeholderTextColor={K.inputPlaceholder}
               multiline
               numberOfLines={3}
               value={newOrgDesc}
@@ -1296,36 +1407,212 @@ export default function DashboardScreen() {
             />
 
             <TouchableOpacity
-              style={[s.btnPrimary, { marginTop: 20 }, creatingOrg && { opacity: 0.6 }]}
+              style={[s.btnPrimary, { backgroundColor: C.amber500, marginTop: 20 }, creatingOrg && { opacity: 0.6 }]}
               onPress={handleCreateOrgSubmit}
               disabled={creatingOrg}
             >
-              {creatingOrg ? (
+              {creatingOrg ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.btnPrimaryText}>Créer l'organisation</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Organisation Drawer (Gestion, Changement & Actions Admin) */}
+      <Modal visible={showOrgDrawer} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '85%' }]}>
+            <View style={s.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={[s.orgAvatarLarge, { width: 36, height: 36, borderRadius: 18 }]}>
+                  <Text style={[s.orgAvatarLargeText, { fontSize: 13 }]}>{initials(selectedOrgNom || '')}</Text>
+                </View>
+                <View>
+                  <Text style={[s.modalTitle, { color: K.text }]}>{selectedOrgNom}</Text>
+                  <Text style={{ fontSize: 11, color: K.textMuted }}>
+                    {isChefInActiveOrg ? 'Administrateur' : 'Membre'} · {activeOrgDetails?.membres.length || 0} membre(s)
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowOrgDrawer(false)}>
+                <X color={K.textMuted} size={20} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Section Changer d'organisation */}
+              <Text style={[s.inputLabel, { color: K.text, marginTop: 8 }]}>Mes Organisations ({mesOrgs.length})</Text>
+              <View style={{ gap: 6, marginBottom: 14 }}>
+                {mesOrgs.map((o) => {
+                  const isActive = o.nom === selectedOrgNom;
+                  return (
+                    <TouchableOpacity
+                      key={o.nom}
+                      style={[
+                        s.selectItemRow,
+                        {
+                          borderColor: isActive ? C.amber500 : K.border,
+                          backgroundColor: isActive ? C.amber500 + '15' : K.bgSecondary,
+                        },
+                      ]}
+                      onPress={() => {
+                        setSelectedOrgNom(o.nom);
+                        setShowOrgDrawer(false);
+                      }}
+                    >
+                      <Building2 color={isActive ? C.amber500 : K.textMuted} size={18} />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={[s.dossierTitle, { color: K.text }]}>{o.nom}</Text>
+                        <Text style={[s.dossierJur, { color: K.textMuted }]}>
+                          {o.role === 'chef' ? 'Administrateur' : 'Membre'} · {o.description || 'Sans description'}
+                        </Text>
+                      </View>
+                      {isActive && <CheckCircle2 color={C.amber500} size={18} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                <TouchableOpacity
+                  style={[s.btnSecondary, { flex: 1, borderColor: K.border }]}
+                  onPress={() => {
+                    setShowOrgDrawer(false);
+                    setCreateOrgError(null);
+                    setShowCreateOrgModal(true);
+                  }}
+                >
+                  <Plus color={K.text} size={14} />
+                  <Text style={[s.btnSecondaryText, { color: K.text, fontSize: 12 }]}>Créer</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.btnSecondary, { flex: 1, borderColor: K.border }]}
+                  onPress={() => {
+                    setShowOrgDrawer(false);
+                    fetchToutesOrgs();
+                    setShowJoinOrgModal(true);
+                  }}
+                >
+                  <Search color={K.text} size={14} />
+                  <Text style={[s.btnSecondaryText, { color: K.text, fontSize: 12 }]}>Rejoindre</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Actions Administrateur */}
+              {isChefInActiveOrg && (
+                <View style={{ borderTopWidth: 1, borderTopColor: K.border, paddingTop: 14, marginBottom: 10 }}>
+                  <Text style={[s.inputLabel, { color: K.text, marginBottom: 10 }]}>Administration de l'organisation</Text>
+
+                  <TouchableOpacity
+                    style={[
+                      s.selectItemRow,
+                      { borderColor: K.border, backgroundColor: K.bgSecondary, marginBottom: 8 },
+                    ]}
+                    onPress={() => {
+                      setShowOrgDrawer(false);
+                      handleOpenEditOrg();
+                    }}
+                  >
+                    <Edit2 color={C.amber500} size={18} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[s.dossierTitle, { color: K.text }]}>Modifier l'organisation</Text>
+                      <Text style={[s.dossierJur, { color: K.textMuted }]}>Nom et description</Text>
+                    </View>
+                    <ChevronRight color={K.textMuted} size={16} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      s.selectItemRow,
+                      { borderColor: '#ef444440', backgroundColor: '#ef444410' },
+                    ]}
+                    onPress={() => {
+                      setShowOrgDrawer(false);
+                      handleDeleteOrg();
+                    }}
+                  >
+                    <Trash2 color="#ef4444" size={18} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[s.dossierTitle, { color: '#ef4444' }]}>Supprimer l'organisation</Text>
+                      <Text style={[s.dossierJur, { color: '#ef4444' }]}>Action définitive et irréversible</Text>
+                    </View>
+                    <ChevronRight color="#ef4444" size={16} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Ajouter un Membre (Chef) */}
+      <Modal visible={showAddMemberModal} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border }]}>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: K.text }]}>Ajouter un membre</Text>
+              <TouchableOpacity onPress={() => setShowAddMemberModal(false)}>
+                <X color={K.textMuted} size={20} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[s.inputLabel, { color: K.text }]}>Adresse e-mail ou numéro de téléphone *</Text>
+            <TextInput
+              style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+              placeholder="ex: collegue@cabinet.com ou +2376..."
+              placeholderTextColor={K.inputPlaceholder}
+              autoCapitalize="none"
+              value={addMemberInput}
+              onChangeText={setAddMemberInput}
+            />
+
+            <Text style={{ fontSize: 11, color: K.textMuted, marginTop: 6, marginBottom: 14 }}>
+              Le membre doit déjà disposer d'un compte sur Cabinet Manager.
+            </Text>
+
+            <TouchableOpacity
+              style={[s.btnPrimary, { marginTop: 8 }]}
+              onPress={handleAddMemberSubmit}
+              disabled={addingMember}
+            >
+              {addingMember ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={s.btnPrimaryText}>Créer l'organisation</Text>
+                <>
+                  <UserPlus color="#fff" size={16} />
+                  <Text style={s.btnPrimaryText}>Ajouter le membre</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Modal Édition Org */}
+      {/* Modal Éditer Org (Chef) */}
       <Modal visible={showEditOrgModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border }]}>
             <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: K.text }]}>Modifier "{selectedOrgNom}"</Text>
+              <Text style={[s.modalTitle, { color: K.text }]}>Modifier l'Organisation</Text>
               <TouchableOpacity onPress={() => setShowEditOrgModal(false)}>
                 <X color={K.textMuted} size={20} />
               </TouchableOpacity>
             </View>
 
-            <Text style={[s.inputLabel, { color: K.text }]}>Description</Text>
+            <Text style={[s.inputLabel, { color: K.text }]}>Nom de l'organisation *</Text>
             <TextInput
-              style={[s.inputField, s.textArea, { backgroundColor: K.background, color: K.text, borderColor: K.border }]}
-              placeholder="Description..."
-              placeholderTextColor={K.textMuted}
+              style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+              placeholder="Nom de l'organisation"
+              placeholderTextColor={K.inputPlaceholder}
+              value={editOrgNom}
+              onChangeText={setEditOrgNom}
+            />
+
+            <Text style={[s.inputLabel, { color: K.text, marginTop: 12 }]}>Description</Text>
+            <TextInput
+              style={[s.inputField, s.textArea, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+              placeholder="Description du cabinet..."
+              placeholderTextColor={K.inputPlaceholder}
               multiline
               numberOfLines={3}
               value={editOrgDesc}
@@ -1333,24 +1620,19 @@ export default function DashboardScreen() {
             />
 
             <TouchableOpacity
-              style={[s.btnPrimary, { marginTop: 20 }, updatingOrg && { opacity: 0.6 }]}
+              style={[s.btnPrimary, { backgroundColor: C.amber500, marginTop: 20 }, updatingOrg && { opacity: 0.6 }]}
               onPress={handleUpdateOrgSubmit}
               disabled={updatingOrg}
             >
-              {updatingOrg ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={s.btnPrimaryText}>Enregistrer</Text>
-              )}
+              {updatingOrg ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.btnPrimaryText}>Enregistrer les modifications</Text>}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Modal Rejoindre Org */}
       <Modal visible={showJoinOrgModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface, maxHeight: '80%' }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '80%' }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: K.text }]}>Rejoindre une Organisation</Text>
               <TouchableOpacity onPress={() => setShowJoinOrgModal(false)}>
@@ -1358,80 +1640,109 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={[s.searchBar, { backgroundColor: K.background, borderColor: K.border, marginBottom: 12 }]}>
+            <View style={[s.searchBar, { backgroundColor: K.inputBg, borderColor: K.inputBorder, marginBottom: 12 }]}>
               <Search color={K.textMuted} size={16} />
               <TextInput
-                style={[s.searchInput, { color: K.text }]}
-                placeholder="Rechercher une organisation..."
-                placeholderTextColor={K.textMuted}
+                style={[s.searchInput, { color: K.inputText }]}
+                placeholder="Entrez le nom exact de l'organisation..."
+                placeholderTextColor={K.inputPlaceholder}
                 value={searchJoinOrg}
                 onChangeText={setSearchJoinOrg}
+                autoCapitalize="none"
               />
+              {searchJoinOrg.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchJoinOrg('')}>
+                  <X color={K.textMuted} size={16} />
+                </TouchableOpacity>
+              )}
             </View>
 
             <ScrollView style={{ maxHeight: 300 }}>
-              {toutesOrgs
-                .filter((o) => o.nom.toLowerCase().includes(searchJoinOrg.toLowerCase()))
-                .map((o) => {
-                  const alreadyMember = mesOrgs.some((mo) => mo.nom === o.nom);
-                  return (
-                    <View key={o.nom} style={[s.joinRow, { borderColor: K.border, backgroundColor: K.background }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[s.dossierTitle, { color: K.text }]}>{o.nom}</Text>
-                        <Text style={[s.dossierJur, { color: K.textMuted }]} numberOfLines={1}>
-                          {o.description || `Créée le ${formatDate(o.createdAt)}`}
-                        </Text>
-                      </View>
+              {searchJoinOrg.trim() === '' ? (
+                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+                  <Building2 color={K.textMuted} size={32} />
+                  <Text style={{ color: K.textMuted, fontSize: 13, textAlign: 'center', maxWidth: 260 }}>
+                    Saisissez le nom exact de l'organisation pour faire une demande d'adhésion.
+                  </Text>
+                </View>
+              ) : (() => {
+                const query = searchJoinOrg.trim().toLowerCase();
+                const exactMatch = toutesOrgs.find((o) => o.nom.trim().toLowerCase() === query);
 
-                      {alreadyMember ? (
-                        <View style={[s.rolePill, s.rolePillMembre]}>
-                          <Text style={s.rolePillMembreText}>Déjà membre</Text>
-                        </View>
-                      ) : (
-                        <TouchableOpacity
-                          style={[s.btnSmallAction, { backgroundColor: C.amber500 }]}
-                          onPress={() => handleDemanderRejoindre(o.nom)}
-                          disabled={requestingJoinNom === o.nom}
-                        >
-                          {requestingJoinNom === o.nom ? (
-                            <ActivityIndicator color="#fff" size="small" />
-                          ) : (
-                            <Text style={s.btnSmallActionText}>Rejoindre</Text>
-                          )}
-                        </TouchableOpacity>
-                      )}
+                if (!exactMatch) {
+                  return (
+                    <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+                      <Building2 color={K.textMuted} size={32} />
+                      <Text style={{ color: K.text, fontWeight: '700', fontSize: 14 }}>
+                        Aucune organisation trouvée
+                      </Text>
+                      <Text style={{ color: K.textMuted, fontSize: 12, textAlign: 'center', maxWidth: 260 }}>
+                        Vérifiez l'orthographe exacte du nom de l'organisation.
+                      </Text>
                     </View>
                   );
-                })}
+                }
+
+                const alreadyMember = mesOrgs.some((mo) => mo.nom.toLowerCase() === exactMatch.nom.toLowerCase());
+
+                return (
+                  <View
+                    style={[
+                      s.joinRow,
+                      { borderColor: K.border, backgroundColor: K.bgSecondary },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.dossierTitle, { color: K.text }]}>{exactMatch.nom}</Text>
+                      <Text style={[s.dossierJur, { color: K.textMuted }]} numberOfLines={2}>
+                        {exactMatch.description || `Créée le ${formatDate(exactMatch.createdAt)}`}
+                      </Text>
+                    </View>
+                    {alreadyMember ? (
+                      <View style={[s.rolePill, s.rolePillMembre]}>
+                        <Text style={s.rolePillMembreText}>Déjà membre</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[s.btnSmallAction, { backgroundColor: C.amber500 }]}
+                        onPress={() => handleDemanderRejoindre(exactMatch.nom)}
+                        disabled={requestingJoinNom === exactMatch.nom}
+                      >
+                        {requestingJoinNom === exactMatch.nom ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={s.btnSmallActionText}>Rejoindre</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()}
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Modal Partager Dossier */}
       <Modal visible={showShareDossierModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface, maxHeight: '75%' }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '75%' }]}>
             <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: K.text }]}>Partager un dossier</Text>
+              <Text style={[s.modalTitle, { color: K.text }]}>Partager un dossier avec l'organisation</Text>
               <TouchableOpacity onPress={() => setShowShareDossierModal(false)}>
                 <X color={K.textMuted} size={20} />
               </TouchableOpacity>
             </View>
-
             <ScrollView>
               {dossiersNonPartages.map((d) => (
                 <TouchableOpacity
                   key={d.id}
-                  style={[s.selectItemRow, { borderColor: K.border, backgroundColor: K.background }]}
+                  style={[s.selectItemRow, { borderColor: K.border, backgroundColor: K.bgSecondary }]}
                   onPress={() => handlePartagerDossierSubmit(Number(d.id))}
                 >
                   <Briefcase color={C.amber500} size={18} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={[s.dossierTitle, { color: K.text }]}>{d.titre}</Text>
-                    <Text style={[s.dossierJur, { color: K.textMuted }]}>
-                      N° {d.numeroAffaire} · {d.statut}
-                    </Text>
+                    <Text style={[s.dossierJur, { color: K.textMuted }]}>N° {d.numeroAffaire} · {d.statut}</Text>
                   </View>
                   <Plus color={C.amber500} size={18} />
                 </TouchableOpacity>
@@ -1441,30 +1752,26 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* Modal Partager Client */}
       <Modal visible={showShareClientModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface, maxHeight: '75%' }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '75%' }]}>
             <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: K.text }]}>Partager un client</Text>
+              <Text style={[s.modalTitle, { color: K.text }]}>Partager un client avec l'organisation</Text>
               <TouchableOpacity onPress={() => setShowShareClientModal(false)}>
                 <X color={K.textMuted} size={20} />
               </TouchableOpacity>
             </View>
-
             <ScrollView>
               {clientsNonPartages.map((c) => (
                 <TouchableOpacity
                   key={c.id}
-                  style={[s.selectItemRow, { borderColor: K.border, backgroundColor: K.background }]}
+                  style={[s.selectItemRow, { borderColor: K.border, backgroundColor: K.bgSecondary }]}
                   onPress={() => handlePartagerClientSubmit(Number(c.id))}
                 >
                   <Users color={C.blue500} size={18} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={[s.dossierTitle, { color: K.text }]}>{c.nomComplet}</Text>
-                    <Text style={[s.dossierJur, { color: K.textMuted }]}>
-                      {c.telephone || c.email || 'Contact'}
-                    </Text>
+                    <Text style={[s.dossierJur, { color: K.textMuted }]}>{c.telephone || c.email || 'Pas de contact'}</Text>
                   </View>
                   <Plus color={C.blue500} size={18} />
                 </TouchableOpacity>
@@ -1474,10 +1781,9 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* Modal Notifications */}
       <Modal visible={showNotifPopUp} transparent animationType="slide">
         <View style={s.modalOverlay}>
-          <View style={[s.modalBox, { backgroundColor: K.surface, maxHeight: '80%' }]}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '80%' }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: K.text }]}>Notifications</Text>
               <TouchableOpacity onPress={() => setShowNotifPopUp(false)}>
@@ -1485,7 +1791,7 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
               <Text style={{ color: K.textMuted, fontSize: 12 }}>{nonLues} non lue(s)</Text>
               {nonLues > 0 && (
                 <TouchableOpacity onPress={handleMarkAllRead}>
@@ -1505,7 +1811,7 @@ export default function DashboardScreen() {
                     key={n.id}
                     style={[
                       s.notifItem,
-                      { borderColor: K.border, backgroundColor: n.lu ? K.background : C.amber500 + '10' },
+                      { borderColor: K.border, backgroundColor: n.lu ? K.bg : C.amber500 + '10' },
                     ]}
                     onPress={() => handleMarkRead(n.id)}
                   >
@@ -1522,8 +1828,231 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
+      {/* Modal Nouvelle Facture (Chef) */}
+      <Modal visible={showFactureModal} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '85%' }]}>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: K.text }]}>Créer une facture</Text>
+              <TouchableOpacity onPress={() => setShowFactureModal(false)}>
+                <X color={K.textMuted} size={20} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[s.inputLabel, { color: K.text }]}>Dossier concerné *</Text>
+              {dossiersFacturation.length === 0 ? (
+                <Text style={{ color: K.textMuted, fontSize: 13, marginBottom: 12 }}>
+                  Aucun dossier disponible pour facturer.
+                </Text>
+              ) : (
+                <View style={{ marginBottom: 14 }}>
+                  {dossiersFacturation.map((d) => {
+                    const isSelected = factDossierId === d.id;
+                    return (
+                      <TouchableOpacity
+                        key={d.id}
+                        style={[
+                          s.selectItemRow,
+                          {
+                            borderColor: isSelected ? C.amber500 : K.border,
+                            backgroundColor: isSelected ? C.amber500 + '15' : K.bgSecondary,
+                          },
+                        ]}
+                        onPress={() => setFactDossierId(d.id)}
+                      >
+                        <Briefcase color={isSelected ? C.amber500 : K.textMuted} size={18} />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={[s.dossierTitle, { color: K.text }]}>{d.titre}</Text>
+                          <Text style={[s.dossierJur, { color: K.textMuted }]}>
+                            N° {d.numeroAffaire} · {d.origine}
+                          </Text>
+                        </View>
+                        {isSelected && <CheckCircle2 color={C.amber500} size={18} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              <Text style={[s.inputLabel, { color: K.text }]}>Montant HT (FCFA) *</Text>
+              <TextInput
+                style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                placeholder="ex: 250000"
+                placeholderTextColor={K.inputPlaceholder}
+                keyboardType="numeric"
+                value={factMontantHt}
+                onChangeText={setFactMontantHt}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.inputLabel, { color: K.text }]}>TVA (%)</Text>
+                  <TextInput
+                    style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                    placeholder="19.25"
+                    placeholderTextColor={K.inputPlaceholder}
+                    keyboardType="numeric"
+                    value={factTva}
+                    onChangeText={setFactTva}
+                  />
+                </View>
+                <View style={{ flex: 1.5 }}>
+                  <Text style={[s.inputLabel, { color: K.text }]}>Échéance</Text>
+                  <TextInput
+                    style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                    placeholder="AAAA-MM-JJ"
+                    placeholderTextColor={K.inputPlaceholder}
+                    value={factEcheance}
+                    onChangeText={setFactEcheance}
+                  />
+                </View>
+              </View>
+
+              <Text style={[s.inputLabel, { color: K.text, marginTop: 12 }]}>Description / Prestation (optionnel)</Text>
+              <TextInput
+                style={[s.inputField, s.textArea, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                placeholder="Honoraires de conseil, rédaction d'acte, plaidoirie..."
+                placeholderTextColor={K.inputPlaceholder}
+                multiline
+                numberOfLines={3}
+                value={factDesc}
+                onChangeText={setFactDesc}
+              />
+
+              <TouchableOpacity
+                style={[s.btnPrimary, { marginTop: 16, marginBottom: 20 }]}
+                onPress={handleCreateFactureSubmit}
+                disabled={creatingFact}
+              >
+                {creatingFact ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Receipt color="#fff" size={16} />
+                    <Text style={s.btnPrimaryText}>Enregistrer la facture</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Édition Facture */}
+      {selectedFacture && (
+        <Modal visible={showEditFactureModal} transparent animationType="slide" onRequestClose={() => setShowEditFactureModal(false)}>
+          <View style={s.modalOverlay}>
+            <View style={[s.modalBox, { backgroundColor: K.surface, borderColor: K.border, maxHeight: '85%' }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: K.text }]}>Modifier {selectedFacture.numeroFacture}</Text>
+                <TouchableOpacity onPress={() => setShowEditFactureModal(false)}>
+                  <X color={K.textMuted} size={20} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Statut Toggle: Impayée vs Encaissée */}
+                <Text style={[s.inputLabel, { color: K.text }]}>Statut de la facture *</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  <TouchableOpacity
+                    style={[
+                      s.btnSecondary,
+                      { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+                      editFactStatut === 'envoyee' && { backgroundColor: C.blue500 + '20', borderColor: C.blue500 },
+                    ]}
+                    onPress={() => setEditFactStatut('envoyee')}
+                  >
+                    <Text style={[s.btnSecondaryText, editFactStatut === 'envoyee' && { color: C.blue500, fontWeight: '700' }]}>
+                      ⏳ Impayée
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      s.btnSecondary,
+                      { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+                      editFactStatut === 'payee' && { backgroundColor: C.green500 + '20', borderColor: C.green500 },
+                    ]}
+                    onPress={() => setEditFactStatut('payee')}
+                  >
+                    <Text style={[s.btnSecondaryText, editFactStatut === 'payee' && { color: C.green500, fontWeight: '700' }]}>
+                      ✅ Encaissée
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[s.inputLabel, { color: K.text }]}>Montant HT (FCFA) *</Text>
+                <TextInput
+                  style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                  placeholder="ex: 250000"
+                  placeholderTextColor={K.inputPlaceholder}
+                  keyboardType="numeric"
+                  value={editFactMontantHt}
+                  onChangeText={setEditFactMontantHt}
+                />
+
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.inputLabel, { color: K.text }]}>TVA (%)</Text>
+                    <TextInput
+                      style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                      placeholder="19.25"
+                      placeholderTextColor={K.inputPlaceholder}
+                      keyboardType="numeric"
+                      value={editFactTva}
+                      onChangeText={setEditFactTva}
+                    />
+                  </View>
+                  <View style={{ flex: 1.5 }}>
+                    <Text style={[s.inputLabel, { color: K.text }]}>Échéance</Text>
+                    <TextInput
+                      style={[s.inputField, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                      placeholder="AAAA-MM-JJ"
+                      placeholderTextColor={K.inputPlaceholder}
+                      value={editFactEcheance}
+                      onChangeText={setEditFactEcheance}
+                    />
+                  </View>
+                </View>
+
+                <Text style={[s.inputLabel, { color: K.text, marginTop: 12 }]}>Description / Prestation (optionnel)</Text>
+                <TextInput
+                  style={[s.inputField, s.textArea, { backgroundColor: K.inputBg, color: K.inputText, borderColor: K.inputBorder }]}
+                  placeholder="Honoraires de conseil, rédaction d'acte, plaidoirie..."
+                  placeholderTextColor={K.inputPlaceholder}
+                  multiline
+                  numberOfLines={3}
+                  value={editFactDesc}
+                  onChangeText={setEditFactDesc}
+                />
+
+                <TouchableOpacity
+                  style={[s.btnPrimary, { marginTop: 16 }]}
+                  onPress={handleSaveEditFacture}
+                  disabled={savingFacture}
+                >
+                  {savingFacture ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={s.btnPrimaryText}>Enregistrer les modifications</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.btnSecondary, { marginTop: 10, backgroundColor: '#ef444415', borderColor: '#ef444440' }]}
+                  onPress={() => handleDeleteFacture(selectedFacture)}
+                >
+                  <Text style={[s.btnSecondaryText, { color: '#ef4444' }]}>Supprimer la facture</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Drawer Compte */}
-      <AccountDrawer visible={showDrawer} onClose={() => setShowDrawer(false)} user={user} logout={logout} />
+      <AccountDrawer visible={showDrawer} onClose={() => setShowDrawer(false)} />
     </SafeAreaView>
   );
 }

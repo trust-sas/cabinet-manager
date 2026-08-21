@@ -40,11 +40,11 @@ export class ClientsService {
     const userPhoneSuffix = userPhoneClean.length >= 8 ? userPhoneClean.slice(-8) : userPhoneClean;
     const userId = typeof userOrCabinetId === 'object' ? userOrCabinetId.id : 0;
 
-    // 1. Vérification avec filtre de cabinet / invitations
+    // 1. Vérification avec filtre de cabinet / invitations / organisations
     let client = await this.clientRepository.createQueryBuilder('c')
       .where('c.id = :clientId', { clientId })
       .andWhere(
-        '(c.cabinetId = :cabinetId OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\')))',
+        '(c.cabinetId = :cabinetId OR c.id IN (SELECT oc.client_id FROM organisation_clients oc INNER JOIN organisation_membres om ON om.organisation_nom = oc.organisation_nom WHERE om.user_id = :userId) OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\')) OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId)))',
         { cabinetId, userId, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix },
       )
       .andWhere('c.deletedAt IS NULL')
@@ -77,7 +77,7 @@ export class ClientsService {
 
     const qb = this.clientRepository.createQueryBuilder('c')
       .where(
-        '(c.cabinetId = :cabinetId OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\')))',
+        '(c.cabinetId = :cabinetId OR c.id IN (SELECT oc.client_id FROM organisation_clients oc INNER JOIN organisation_membres om ON om.organisation_nom = oc.organisation_nom WHERE om.user_id = :userId) OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT dossier_id FROM dossier_invitations WHERE (destinataire_id = :userId OR (LOWER(destinataire_email) = :userEmail AND :userEmail != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') = :userPhone AND :userPhone != \'\') OR (REPLACE(destinataire_telephone, \' \', \'\') LIKE \'%\' || :userPhoneSuffix AND :userPhoneSuffix != \'\')) AND statut = \'acceptee\')) OR c.id IN (SELECT client_id FROM dossiers WHERE id IN (SELECT od.dossier_id FROM organisation_dossiers od INNER JOIN organisation_membres om ON om.organisation_nom = od.organisation_nom WHERE om.user_id = :userId)))',
         { cabinetId, userId, userEmail: userEmailClean, userPhone: userPhoneClean, userPhoneSuffix },
       )
       .andWhere('c.deletedAt IS NULL');

@@ -49,7 +49,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // ── Démarrage ─────────────────────────────────────────────────────────────
-  const port = parseInt(process.env.PORT ?? '8080', 10);
+  const port = parseInt(process.env.PORT ?? '3007', 10);
   await app.listen(port, '0.0.0.0');
   console.log(`[Cabinet Manager API] Serveur démarré sur le port ${port}`);
 }

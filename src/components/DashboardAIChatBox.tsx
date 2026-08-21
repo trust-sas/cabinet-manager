@@ -1,7 +1,7 @@
 /**
  * src/components/DashboardAIChatBox.tsx
- * Boîte de dialogue intéractive avec l'Assistant IA directement sur le Tableau de bord.
- * Connectée en direct à l'API Google Gemini + RAG (7 156 textes de lois).
+ * Boîte de consultation et d'assistance juridique sur le Tableau de bord.
+ * Connectée à l'API Assistant IA + RAG textes de lois.
  */
 
 import React, { useState } from 'react';
@@ -15,17 +15,17 @@ import {
   ScrollView,
   Keyboard,
 } from 'react-native';
-import { Brain, Send, Sparkles, ExternalLink, RefreshCw, CheckCircle2 } from 'lucide-react-native';
+import { Scale, Send, Search, ExternalLink, RefreshCw, CheckCircle2, ChevronRight } from 'lucide-react-native';
 import { AppColors as C } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 import api, { extractErrorMessage } from '@/lib/api';
 import { useRouter } from 'expo-router';
 
 const PRESET_PROMPTS = [
-  'Licenciement abusif au Cameroun',
+  'Licenciement abusif',
   'Procédure de référé',
-  'Audiences du jour',
-  'Règles de la preuve contractuelle',
+  'Preuve contractuelle',
+  'Délais de prescription',
 ];
 
 export function DashboardAIChatBox() {
@@ -57,24 +57,24 @@ export function DashboardAIChatBox() {
 
   return (
     <View style={[styles.container, { backgroundColor: K.surface, borderColor: K.border }]}>
-      {/* En-tête de la boîte IA */}
+      {/* En-tête sobre & professionnel */}
       <View style={styles.header}>
         <View style={styles.headerTitleWrap}>
-          <View style={[styles.aiBadge, { backgroundColor: K.primaryLight }]}>
-            <Brain color={K.primary} size={18} />
+          <View style={[styles.legalBadge, { backgroundColor: K.primaryLight }]}>
+            <Scale color={K.primary} size={18} />
           </View>
           <View>
-            <Text style={[styles.title, { color: K.text }]}>Assistant IA Juridique</Text>
-            <Text style={[styles.subtitle, { color: K.textMuted }]}>En ligne (Google Gemini + 7 156 Lois)</Text>
+            <Text style={[styles.title, { color: K.text }]}>Consultation Juridique & Textes</Text>
+            <Text style={[styles.subtitle, { color: K.textMuted }]}>Recherche de jurisprudence & textes de loi</Text>
           </View>
         </View>
         <TouchableOpacity
-          style={[styles.expandBtn, { backgroundColor: K.bgTertiary }]}
+          style={[styles.expandBtn, { backgroundColor: K.bgSecondary, borderColor: K.border }]}
           onPress={() => router.push('/assistant-ia')}
           activeOpacity={0.8}
         >
-          <Text style={[styles.expandText, { color: K.primary }]}>Plein écran</Text>
-          <ExternalLink color={K.primary} size={14} />
+          <Text style={[styles.expandText, { color: K.primary }]}>Ouvrir</Text>
+          <ChevronRight color={K.primary} size={14} />
         </TouchableOpacity>
       </View>
 
@@ -87,28 +87,28 @@ export function DashboardAIChatBox() {
         {PRESET_PROMPTS.map((p, i) => (
           <TouchableOpacity
             key={i}
-            style={[styles.chip, { backgroundColor: K.bgTertiary, borderColor: K.border }]}
+            style={[styles.chip, { backgroundColor: K.bgSecondary, borderColor: K.border }]}
             onPress={() => handleSend(p)}
             activeOpacity={0.8}
           >
-            <Sparkles color={K.primary} size={12} />
+            <Search color={K.primary} size={11} />
             <Text style={[styles.chipText, { color: K.textSecondary }]}>{p}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {/* Zone de réponse de l'IA */}
+      {/* Zone de réponse */}
       {loading ? (
         <View style={[styles.loadingBox, { backgroundColor: K.bgSecondary }]}>
           <ActivityIndicator color={K.primary} size="small" />
-          <Text style={[styles.loadingText, { color: K.primary }]}>Consultation de Google Gemini & des textes de lois...</Text>
+          <Text style={[styles.loadingText, { color: K.primary }]}>Recherche dans les textes de lois en cours...</Text>
         </View>
       ) : response ? (
         <View style={[styles.responseBox, { backgroundColor: K.bgSecondary, borderColor: K.border }]}>
           <View style={[styles.responseHeader, { borderBottomColor: K.border }]}>
             <CheckCircle2 color={K.success} size={14} />
             <Text style={[styles.lastQuestionText, { color: K.textMuted }]} numberOfLines={1}>
-              Q: "{lastQuestion}"
+              {lastQuestion}
             </Text>
             <TouchableOpacity onPress={() => setResponse(null)} style={styles.resetBtn}>
               <RefreshCw color={K.textMuted} size={12} />
@@ -121,13 +121,13 @@ export function DashboardAIChatBox() {
       ) : null}
 
       {/* Champ de saisie & Bouton d'envoi */}
-      <View style={[styles.inputWrap, { backgroundColor: K.inputBg, borderColor: K.border }]}>
+      <View style={[styles.inputWrap, { backgroundColor: K.inputBg, borderColor: K.inputBorder }]}>
         <TextInput
           style={[styles.input, { color: K.inputText }]}
           value={prompt}
           onChangeText={setPrompt}
-          placeholder="Posez une question juridique au cabinet..."
-          placeholderTextColor={K.textMuted}
+          placeholder="Poser une question juridique ou rechercher un article..."
+          placeholderTextColor={K.inputPlaceholder}
           multiline={false}
           onSubmitEditing={() => handleSend()}
           returnKeyType="send"
@@ -138,7 +138,7 @@ export function DashboardAIChatBox() {
           disabled={!prompt.trim() || loading}
           activeOpacity={0.8}
         >
-          <Send color={isDark ? C.gray900 : '#ffffff'} size={16} />
+          <Send color={K.primaryText} size={15} />
         </TouchableOpacity>
       </View>
     </View>
@@ -147,151 +147,128 @@ export function DashboardAIChatBox() {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: C.navy900,
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.3)',
-    marginVertical: 12,
-    shadowColor: C.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   headerTitleWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
   },
-  aiBadge: {
+  legalBadge: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(245,158,11,0.2)',
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
-    color: C.white,
   },
   subtitle: {
     fontSize: 11,
-    color: C.amber400,
     marginTop: 1,
   },
   expandBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    gap: 3,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
   expandText: {
     fontSize: 11,
     fontWeight: '600',
-    color: C.amber400,
   },
   chipsContainer: {
-    gap: 8,
-    paddingBottom: 12,
+    gap: 6,
+    paddingBottom: 10,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    gap: 5,
     borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.2)',
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
   },
   chipText: {
     fontSize: 11,
-    color: C.gray200,
+    fontWeight: '500',
   },
   loadingBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
   },
   loadingText: {
     fontSize: 12,
-    color: C.amber400,
     flex: 1,
   },
   responseBox: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
   },
   responseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
+    marginBottom: 6,
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   lastQuestionText: {
     fontSize: 11,
     fontWeight: '600',
-    color: C.gray400,
     flex: 1,
   },
   resetBtn: {
     padding: 2,
   },
   responseScroll: {
-    maxHeight: 180,
+    maxHeight: 160,
   },
   responseText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: C.gray200,
+    fontSize: 12,
+    lineHeight: 18,
   },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: C.gray900,
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: C.gray700,
-    paddingLeft: 14,
-    paddingRight: 6,
-    paddingVertical: 4,
+    paddingLeft: 12,
+    paddingRight: 5,
+    paddingVertical: 3,
   },
   input: {
     flex: 1,
     fontSize: 13,
-    color: C.white,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: C.amber500,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -299,3 +276,4 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
 });
+

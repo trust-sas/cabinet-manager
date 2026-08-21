@@ -272,8 +272,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setCurrentUserSession('');
       setUser(null);
       hasNavigated.current = false;
+      router.replace('/login');
     }
-  }, [user]);
+  }, [user, router]);
 
   const refreshUser = useCallback(async (): Promise<void> => {
     try {
