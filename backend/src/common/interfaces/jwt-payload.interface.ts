@@ -20,6 +20,10 @@ export interface AccessTokenPayload {
   permissions: string[];
   /** Confirme que l'utilisateur a bien validé son 2FA sur cette session. */
   twoFactorVerified: boolean;
+  /** Adresse email de l'utilisateur. */
+  email?: string;
+  /** Numéro de téléphone de l'utilisateur. */
+  telephone?: string;
 }
 
 /** Payload du jeton de rafraîchissement (longue durée de vie, ex. 30 jours). */
@@ -41,4 +45,6 @@ export interface AuthenticatedUser {
   cabinetId: number;
   role: string;
   permissions: string[];
+  email?: string;
+  telephone?: string;
 }

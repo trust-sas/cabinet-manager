@@ -37,8 +37,15 @@ export class Utilisateur {
   @Column({ name: 'nom', type: 'varchar', length: 150 })
   nom: string;
 
+  /* Authentification par email mise en commentaire / optionnelle
   @Column({ name: 'email', type: 'varchar', length: 150 })
   email: string;
+  */
+  @Column({ name: 'email', type: 'varchar', length: 150, nullable: true })
+  email: string | null;
+
+  @Column({ name: 'telephone', type: 'varchar', length: 50, nullable: true })
+  telephone: string | null;
 
   /** Haché avec argon2id — voir modules/auth/hashing (jamais en clair). */
   @Column({ name: 'mot_de_passe_hash', type: 'varchar', length: 255 })

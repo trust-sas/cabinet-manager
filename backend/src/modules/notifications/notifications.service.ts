@@ -47,8 +47,7 @@ export class NotificationsService {
     pageSize = 20,
   ): Promise<ResultatPagineNotifications> {
     const qb = this.notificationRepository.createQueryBuilder('n')
-      .where('n.cabinetId = :cabinetId', { cabinetId: user.cabinetId })
-      .andWhere('n.utilisateurId = :userId', { userId: user.id })
+      .where('n.utilisateurId = :userId', { userId: user.id })
       .orderBy('n.createdAt', 'DESC');
 
     const [data, total] = await qb
@@ -57,7 +56,7 @@ export class NotificationsService {
       .getManyAndCount();
 
     const nonLuesCount = await this.notificationRepository.count({
-      where: { cabinetId: user.cabinetId, utilisateurId: user.id, lu: false },
+      where: { utilisateurId: user.id, lu: false },
     });
 
     return { page, pageSize, total, nonLuesCount, data };
@@ -65,7 +64,7 @@ export class NotificationsService {
 
   async marquerCommeLue(id: number, user: AuthenticatedUser): Promise<Notification> {
     const notif = await this.notificationRepository.findOne({
-      where: { id, cabinetId: user.cabinetId, utilisateurId: user.id },
+      where: { id, utilisateurId: user.id },
     });
 
     if (!notif) {
@@ -78,7 +77,7 @@ export class NotificationsService {
 
   async marquerToutCommeLu(user: AuthenticatedUser): Promise<{ count: number }> {
     const result = await this.notificationRepository.update(
-      { cabinetId: user.cabinetId, utilisateurId: user.id, lu: false },
+      { utilisateurId: user.id, lu: false },
       { lu: true },
     );
 
@@ -87,7 +86,17 @@ export class NotificationsService {
 
   async compterNonLues(user: AuthenticatedUser): Promise<number> {
     return this.notificationRepository.count({
-      where: { cabinetId: user.cabinetId, utilisateurId: user.id, lu: false },
+      where: { utilisateurId: user.id, lu: false },
     });
+  }
+
+  async supprimer(id: number, user: AuthenticatedUser): Promise<void> {
+    const notif = await this.notificationRepository.findOne({
+      where: { id, utilisateurId: user.id },
+    });
+    if (!notif) {
+      throw new NotFoundException(`Notification #${id} introuvable`);
+    }
+    await this.notificationRepository.remove(notif);
   }
 }

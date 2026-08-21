@@ -40,4 +40,7 @@ export class CreateDossierDto {
   @IsOptional()
   @IsUUID('4', { message: 'clientUuid doit être un UUID v4 valide.' })
   clientUuid?: string;
+
+  @IsOptional()
+  estPublic?: boolean;
 }

@@ -12,7 +12,8 @@
  *  6. Écoute sur le port configuré (défaut : 8080)
  * ---------------------------------------------------------------------------
  */
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+dotenv.config({ override: true }); // override: true force le rechargement même si la var existe déjà
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -48,7 +49,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // ── Démarrage ─────────────────────────────────────────────────────────────
-  const port = parseInt(process.env.PORT ?? '8080', 10);
+  const port = parseInt(process.env.PORT ?? '3007', 10);
   await app.listen(port, '0.0.0.0');
   console.log(`[Cabinet Manager API] Serveur démarré sur le port ${port}`);
 }

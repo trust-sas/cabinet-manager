@@ -86,7 +86,10 @@ export const AppColors = {
 
   purple50:  '#faf5ff',
   purple100: '#f3e8ff',
+  purple200: '#e9d5ff',
+  purple300: '#d8b4fe',
   purple600: '#9333ea',
+  purple700: '#7e22ce',
 
   indigo50:  '#eef2ff',
   indigo100: '#e0e7ff',

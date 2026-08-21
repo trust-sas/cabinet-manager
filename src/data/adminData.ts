@@ -42,7 +42,7 @@ export type ActionLog =
   | 'modification_client' | 'creation_utilisateur' | 'modification_role'
   | 'modification_permissions' | 'export_donnees' | 'consultation_dossier'
   | 'planification_audience' | 'connexion_echec' | 'tentative_acces_refuse'
-  | 'restauration_donnees';
+  | 'restauration_donnees' | 'commentaire_utilisateur';
 
 export interface LogActivite {
   id: string;
@@ -222,15 +222,29 @@ export const utilisateursAdmin: UtilisateurAdmin[] = [
 
 export const journalActivites: LogActivite[] = [
   {
-    id: 'log001',
+    id: 'log_com_001',
     utilisateurId: 'u2',
     utilisateurNom: 'Nkodo Jean-Pierre',
     utilisateurRole: 'avocat',
-    action: 'connexion',
-    module: 'Authentification',
-    description: 'Connexion réussie avec 2FA',
+    action: 'commentaire_utilisateur',
+    module: 'Administration',
+    description: '💬 Commentaire utilisateur : "Merci de vérifier les autorisations d\'accès aux pièces jointes du dossier AFF-2024-001."',
     horodatage: new Date(Date.now() - 30 * 60000).toISOString(),
     adresseIP: '192.168.1.14',
+    nouvelleValeur: 'Merci de vérifier les autorisations d\'accès aux pièces jointes du dossier AFF-2024-001.',
+    restaurable: false,
+  },
+  {
+    id: 'log_com_002',
+    utilisateurId: 'u3',
+    utilisateurNom: 'Mbarga Hélène',
+    utilisateurRole: 'avocat',
+    action: 'commentaire_utilisateur',
+    module: 'Administration',
+    description: '💬 Commentaire utilisateur : "L\'exportation de la facturation fonctionne très bien. Merci."',
+    horodatage: new Date(Date.now() - 3 * 3600000).toISOString(),
+    adresseIP: '192.168.1.22',
+    nouvelleValeur: 'L\'exportation de la facturation fonctionne très bien. Merci.',
     restaurable: false,
   },
   {
@@ -390,3 +404,21 @@ export const journalActivites: LogActivite[] = [
     restaurable: true,
   },
 ];
+
+export function ajouterLogCommentaire(nom: string, role: string, message: string): LogActivite {
+  const newLog: LogActivite = {
+    id: `log_com_${Date.now()}`,
+    utilisateurId: 'u_user',
+    utilisateurNom: nom || 'Utilisateur App',
+    utilisateurRole: (role?.toLowerCase() as RoleKey) || 'avocat',
+    action: 'commentaire_utilisateur',
+    module: 'Administration',
+    description: `💬 Commentaire utilisateur : "${message}"`,
+    horodatage: new Date().toISOString(),
+    adresseIP: '127.0.0.1',
+    nouvelleValeur: message,
+    restaurable: false,
+  };
+  journalActivites.unshift(newLog);
+  return newLog;
+}

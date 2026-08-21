@@ -5,7 +5,14 @@
 
 import api from '@/lib/api';
 
-export type NotificationType = 'audience_rappel' | 'facture_retard' | 'rdv_rappel' | 'info';
+export type NotificationType =
+  | 'audience_rappel'
+  | 'facture_retard'
+  | 'rdv_rappel'
+  | 'info'
+  | 'invitation'
+  | 'permission_requete'
+  | 'permission_reponse';
 
 export interface NotificationItem {
   id: number;
@@ -48,4 +55,8 @@ export async function marquerNotificationCommeLue(id: number): Promise<Notificat
 export async function marquerToutesNotificationsCommeLues(): Promise<{ count: number }> {
   const { data } = await api.patch<{ count: number }>('/notifications/lire-tout');
   return data;
+}
+
+export async function supprimerNotification(id: number): Promise<void> {
+  await api.delete(`/notifications/${id}`);
 }

@@ -4,7 +4,7 @@
  */
 
 import { extractErrorMessage } from '@/lib/api';
-import { activerUser, desactiverUser, getUsers, UserProfile } from '@/services/users.service';
+import { activerUser, desactiverUser, deleteUser, getUsers, UserProfile } from '@/services/users.service';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseAdminUsersResult {
@@ -13,6 +13,7 @@ interface UseAdminUsersResult {
   error: string | null;
   refetch: () => Promise<void>;
   toggleActivation: (id: number, currentActif: boolean) => Promise<void>;
+  deleteAccount: (id: number) => Promise<void>;
 }
 
 export function useAdminUsers(): UseAdminUsersResult {
@@ -46,11 +47,21 @@ export function useAdminUsers(): UseAdminUsersResult {
     }
   }, []);
 
+  const deleteAccount = useCallback(async (id: number) => {
+    try {
+      await deleteUser(id);
+      setUsers((prev) => prev.filter((u) => u.id !== id));
+    } catch (e) {
+      throw e;
+    }
+  }, []);
+
   return {
     users,
     isLoading,
     error,
     refetch: load,
     toggleActivation,
+    deleteAccount,
   };
 }

@@ -62,6 +62,9 @@ export class Dossier {
   @Column({ name: 'client_uuid', type: 'uuid', nullable: true })
   clientUuid: string | null;
 
+  @Column({ name: 'est_public', type: 'boolean', default: true })
+  estPublic: boolean;
+
   @Column({ name: 'version', type: 'int', default: 1 })
   version: number;
 

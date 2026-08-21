@@ -12,33 +12,35 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 function resolveApiBaseUrl(): string {
-  // 1. Variable d'env explicite (EAS Build, .env.local, CI/CD)
+  // 1. Web browser dynamic host (sur navigateur Web, joindre le port 3007 de l'hôte courant)
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:3007/api/v1`;
+  }
+
+  // 2. Variable d'env explicite (.env.local, EAS Build)
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
-  // 2. Détection automatique en développement
+  // 3. Détection automatique en développement mobile (Expo Go)
   if (__DEV__) {
-    // Tenter d'extraire l'IP LAN du PC hôte depuis Expo Constants (sur smartphone physique via Expo Go)
     const hostUri = Constants.expoConfig?.hostUri || (Constants.manifest2?.extra?.expoGo as any)?.debuggerHost;
     if (hostUri) {
       const hostIp = hostUri.split(':')[0];
       if (hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1') {
-        return `http://${hostIp}:8080/api/v1`;
+        return `http://${hostIp}:3007/api/v1`;
       }
     }
 
     if (Platform.OS === 'android') {
-      // Émulateur Android (fallback)
-      return 'http://10.0.2.2:8080/api/v1';
+      return 'http://10.0.2.2:3007/api/v1';
     }
 
-    // iOS simulator / Web (fallback)
-    return 'http://localhost:8080/api/v1';
+    return 'http://localhost:3007/api/v1';
   }
 
-  // 3. Fallback production / LAN
-  return 'http://192.168.100.132:8080/api/v1';
+  return 'http://192.168.100.132:3007/api/v1';
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

@@ -4,7 +4,7 @@
  */
 
 import {
-  Controller, Get, Param, ParseIntPipe, Post, Query,
+  Controller, Get, Param, ParseIntPipe, Post, Query, Body, BadRequestException,
 } from '@nestjs/common';
 import { JournalService, QueryJournalDto } from './journal.service';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
@@ -31,6 +31,31 @@ export class JournalController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.journalService.findOne(id, user);
+  }
+
+  @Post('commentaire')
+  async posterCommentaire(
+    @Body() dto: { message: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const text = (dto.message || '').trim();
+    if (!text) {
+      throw new BadRequestException('Le commentaire ne peut pas être vide.');
+    }
+    await this.journalService.enregistrer({
+      cabinetId: user.cabinetId || 1,
+      utilisateurId: user.id,
+      action: 'commentaire_utilisateur',
+      entiteType: 'Commentaire',
+      entiteId: user.id,
+      donneesApres: {
+        auteurId: user.id,
+        role: user.role,
+        commentaire: text,
+        date: new Date().toISOString(),
+      },
+    });
+    return { success: true, message: 'Commentaire transmis aux administrateurs.' };
   }
 
   @RequirePermission('journal', 'update')

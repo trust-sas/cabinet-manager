@@ -6,17 +6,22 @@
  */
 import { extractErrorMessage } from '@/lib/api';
 import { AppColors as C } from '@/constants/theme';
+import { useTheme } from '@/hooks/useTheme';
 import { useClients } from '@/hooks/useClients';
+import { useDossiers } from '@/hooks/useDossiers';
 import { createDossier } from '@/services/dossiers.service';
+import { ajouterAccèsDossier, hasDossierAccess, hasClientAccess } from '@/services/dossierInvitations.service';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Building2, FileText, Plus, Save, User } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -26,23 +31,57 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const JURIDICTIONS = [
-  'Tribunal de Grande Instance de Douala',
-  'Tribunal de Grande Instance de Yaoundé',
-  'Tribunal de Première Instance de Douala-Bonanjo',
-  'Tribunal de Première Instance de Yaoundé-Ekounou',
-  "Cour d'Appel du Littoral",
-  "Cour d'Appel du Centre",
-  'Tribunal Criminel Spécial (TCS)',
+  'TGI Douala (Bonanjo)',
+  'TGI Yaoundé (Centre)',
+  'Tribunal de Commerce Douala',
+  'Cour d\'Appel du Littoral',
   'Cour Suprême du Cameroun',
-  'Autre juridiction',
+  'Autre',
 ];
 
 export default function NouvelleAffaireScreen() {
   const router = useRouter();
+  const { colors: K, isDark } = useTheme();
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardSpace, setKeyboardSpace] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardSpace(e.endCoordinates.height);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardSpace(0);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleScrollToBottom = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  };
+
   const { clients, isLoading: loadingClients } = useClients({ pageSize: 100 });
+  const userClients = clients;
 
   // Champs du formulaire
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!selectedClientId && userClients.length > 0) {
+      setSelectedClientId(Number(userClients[0].id));
+    }
+  }, [userClients, selectedClientId]);
+
   const [titre, setTitre] = useState('');
   const [juridiction, setJuridiction] = useState('');
   const [notes, setNotes] = useState('');
@@ -67,6 +106,9 @@ export default function NouvelleAffaireScreen() {
         juridiction: juridiction.trim() || undefined,
         notes: notes.trim() || undefined,
       });
+      if (created?.id) {
+        ajouterAccèsDossier(Number(created.id));
+      }
       Alert.alert(
         'Dossier créé !',
         `Numéro : ${created.numeroAffaire}\nStatut : Ouvert`,
@@ -80,49 +122,56 @@ export default function NouvelleAffaireScreen() {
   };
 
   return (
-    <View style={s.root}>
+    <View style={[s.root, { backgroundColor: K.bg }]}>
       {/* Header */}
-      <SafeAreaView edges={['top']} style={{ backgroundColor: C.gray900 }}>
-        <View style={s.header}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <SafeAreaView edges={['top']} style={{ backgroundColor: K.bgSecondary }}>
+        <View style={[s.header, { backgroundColor: K.bgSecondary }]}>
           <TouchableOpacity onPress={() => router.back()} style={s.backRow} activeOpacity={0.7}>
-            <ArrowLeft color={C.gray400} size={20} />
-            <Text style={s.backText}>Retour</Text>
+            <ArrowLeft color={K.textMuted} size={20} />
+            <Text style={[s.backText, { color: K.textMuted }]}>Retour</Text>
           </TouchableOpacity>
           <View style={s.titleRow}>
-            <View style={s.titleIcon}>
-              <FileText color={C.amber500} size={22} />
+            <View style={[s.titleIcon, { backgroundColor: K.primaryLight }]}>
+              <FileText color={K.primary} size={22} />
             </View>
             <View>
-              <Text style={s.title}>Nouveau Dossier</Text>
-              <Text style={s.sub}>Ouverture d'une affaire juridique</Text>
+              <Text style={[s.title, { color: K.text }]}>Nouveau Dossier</Text>
+              <Text style={[s.sub, { color: K.primary }]}>Ouverture d'une affaire juridique</Text>
             </View>
           </View>
         </View>
       </SafeAreaView>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <ScrollView
-          contentContainerStyle={s.scroll}
-          showsVerticalScrollIndicator={false}
+          ref={scrollRef}
+          contentContainerStyle={{ flexGrow: 1, padding: 16, paddingBottom: keyboardSpace > 0 ? keyboardSpace + 140 : 120, gap: 14 }}
+          showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={true}
+          nestedScrollEnabled={true}
         >
           {/* ── 1. Sélection du client ── */}
-          <View style={s.section}>
+          <View style={[s.section, { backgroundColor: K.surface, borderColor: K.border }]}>
             <View style={s.sectionHeader}>
               <Text style={s.sectionNum}>1</Text>
-              <Text style={s.sectionTitle}>Client du dossier *</Text>
+              <Text style={[s.sectionTitle, { color: K.text }]}>Client du dossier *</Text>
               <TouchableOpacity onPress={() => router.push('/nouveau-client')} style={s.addLink}>
-                <Plus color={C.amber600} size={14} />
-                <Text style={s.addLinkText}>Créer un client</Text>
+                <Plus color={K.primary} size={14} />
+                <Text style={[s.addLinkText, { color: K.primary }]}>Créer un client</Text>
               </TouchableOpacity>
             </View>
 
             {loadingClients ? (
               <ActivityIndicator color={C.amber500} style={{ marginVertical: 12 }} />
-            ) : clients.length === 0 ? (
+            ) : userClients.length === 0 ? (
               <View style={s.emptyClients}>
-                <User color={C.gray400} size={32} />
-                <Text style={s.emptyClientsTitle}>Aucun client dans le répertoire</Text>
+                <User color={K.textMuted} size={32} />
+                <Text style={[s.emptyClientsTitle, { color: K.textMuted }]}>Aucun client dans votre répertoire</Text>
                 <TouchableOpacity style={s.createClientBtn} onPress={() => router.push('/nouveau-client')}>
                   <Text style={s.createClientBtnText}>+ Créer un client d'abord</Text>
                 </TouchableOpacity>
@@ -133,31 +182,36 @@ export default function NouvelleAffaireScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 4 }}
               >
-                {clients.map((c) => {
+                {userClients.map((c) => {
                   const id = Number(c.id);
                   const isSelected = selectedClientId === id;
                   return (
                     <TouchableOpacity
                       key={String(c.id)}
                       onPress={() => setSelectedClientId(id)}
-                      style={[s.clientCard, isSelected && s.clientCardSelected, { marginRight: 10 }]}
+                      style={[
+                        s.clientCard,
+                        { backgroundColor: K.bgSecondary, borderColor: K.border },
+                        isSelected && { borderColor: K.primary, backgroundColor: isDark ? 'rgba(217,119,6,0.15)' : C.amber50 },
+                        { marginRight: 10 }
+                      ]}
                       activeOpacity={0.8}
                     >
-                      <View style={[s.clientAvatar, { backgroundColor: isSelected ? C.gray900 : C.amber50 }]}>
+                      <View style={[s.clientAvatar, { backgroundColor: isSelected ? K.primary : (isDark ? K.surface : C.amber50) }]}>
                         {c.nomComplet.toLowerCase().startsWith('s') ||
                         c.nomComplet.toLowerCase().includes(' sa') ||
                         c.nomComplet.toLowerCase().includes(' ltd') ? (
-                          <Building2 color={isSelected ? C.amber400 : C.amber600} size={18} />
+                          <Building2 color={isSelected ? (isDark ? C.gray900 : C.white) : K.primary} size={18} />
                         ) : (
-                          <User color={isSelected ? C.amber400 : C.amber600} size={18} />
+                          <User color={isSelected ? (isDark ? C.gray900 : C.white) : K.primary} size={18} />
                         )}
                       </View>
                       <View style={{ flex: 1, minWidth: 80 }}>
-                        <Text style={[s.clientName, isSelected && { color: C.gray900 }]} numberOfLines={2}>
+                        <Text style={[s.clientName, { color: K.text }, isSelected && { color: K.primary, fontWeight: '700' }]} numberOfLines={2}>
                           {c.nomComplet}
                         </Text>
                         {c.email ? (
-                          <Text style={s.clientEmail} numberOfLines={1}>{c.email}</Text>
+                          <Text style={[s.clientEmail, { color: K.textMuted }]} numberOfLines={1}>{c.email}</Text>
                         ) : null}
                       </View>
                     </TouchableOpacity>
@@ -168,34 +222,35 @@ export default function NouvelleAffaireScreen() {
           </View>
 
           {/* ── 2. Informations du dossier ── */}
-          <View style={s.section}>
+          <View style={[s.section, { backgroundColor: K.surface, borderColor: K.border }]}>
             <View style={s.sectionHeader}>
               <Text style={s.sectionNum}>2</Text>
-              <Text style={s.sectionTitle}>Informations du dossier</Text>
+              <Text style={[s.sectionTitle, { color: K.text }]}>Informations du dossier</Text>
             </View>
 
             <View style={s.field}>
-              <Text style={s.label}>
+              <Text style={[s.label, { color: K.text }]}>
                 Intitulé / Titre de l'affaire <Text style={{ color: C.red500 }}>*</Text>
               </Text>
               <TextInput
-                style={s.input}
+                style={[s.input, { backgroundColor: K.inputBg, borderColor: K.inputBorder, color: K.inputText }]}
                 value={titre}
                 onChangeText={setTitre}
                 placeholder="Ex: Litige commercial Brasseries vs Distributeur"
-                placeholderTextColor={C.gray400}
+                placeholderTextColor={K.inputPlaceholder}
                 returnKeyType="next"
               />
             </View>
 
             <View style={s.field}>
-              <Text style={s.label}>Juridiction compétente</Text>
+              <Text style={[s.label, { color: K.text }]}>Juridiction compétente</Text>
               <TextInput
-                style={s.input}
+                style={[s.input, { backgroundColor: K.inputBg, borderColor: K.inputBorder, color: K.inputText }]}
                 value={juridiction}
                 onChangeText={setJuridiction}
                 placeholder="Sélectionnez ou saisissez..."
-                placeholderTextColor={C.gray400}
+                placeholderTextColor={K.inputPlaceholder}
+                onFocus={handleScrollToBottom}
               />
               <ScrollView
                 horizontal
@@ -206,9 +261,14 @@ export default function NouvelleAffaireScreen() {
                   <TouchableOpacity
                     key={j}
                     onPress={() => setJuridiction(j)}
-                    style={[s.jurPill, juridiction === j && s.jurPillActive, { marginRight: 6 }]}
+                    style={[
+                      s.jurPill,
+                      { backgroundColor: K.bgSecondary, borderColor: K.border },
+                      juridiction === j && { backgroundColor: K.primary, borderColor: K.primary },
+                      { marginRight: 6 }
+                    ]}
                   >
-                    <Text style={[s.jurPillText, juridiction === j && s.jurPillTextActive]}>
+                    <Text style={[s.jurPillText, { color: K.textSecondary }, juridiction === j && { color: C.gray900, fontWeight: '700' }]}>
                       {j}
                     </Text>
                   </TouchableOpacity>
@@ -217,13 +277,14 @@ export default function NouvelleAffaireScreen() {
             </View>
 
             <View style={s.field}>
-              <Text style={s.label}>Notes internes / Faits clés</Text>
+              <Text style={[s.label, { color: K.text }]}>Notes internes / Faits clés</Text>
               <TextInput
-                style={[s.input, { height: 100, textAlignVertical: 'top', paddingTop: 12 }]}
+                style={[s.input, { backgroundColor: K.inputBg, borderColor: K.inputBorder, color: K.inputText, height: 100, textAlignVertical: 'top', paddingTop: 12 }]}
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="Description des faits, éléments de preuve, dates importantes..."
-                placeholderTextColor={C.gray400}
+                placeholderTextColor={K.inputPlaceholder}
+                onFocus={handleScrollToBottom}
                 multiline
               />
             </View>
@@ -276,7 +337,7 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '700', color: C.white },
   sub: { fontSize: 13, color: C.amber400, marginTop: 2 },
-  scroll: { padding: 16, paddingBottom: 48, gap: 14 },
+  scroll: { padding: 16, paddingBottom: 160, gap: 14 },
   section: {
     backgroundColor: C.white, borderRadius: 16, padding: 16,
     shadowColor: C.black, shadowOffset: { width: 0, height: 1 },

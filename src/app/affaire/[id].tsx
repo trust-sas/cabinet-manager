@@ -5,14 +5,20 @@
  * Inclus : Édition du dossier, gestion des audiences, upload (PDF, Word, Excel, Photo, Scan),
  * APERÇU INTERACTIF RÉEL DE DOCUMENT (Lecteur PDF, Word, Tableur Excel, Image) ET TÉLÉCHARGEMENT.
  */
-import { extractErrorMessage } from '@/lib/api';
+import { extractErrorMessage, formatPhoneWithCountryCode } from '@/lib/api';
 import { AppColors as C } from '@/constants/theme';
 import { useAudiences } from '@/hooks/useAudiences';
 import { useDossier } from '@/hooks/useDossiers';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useFactures } from '@/hooks/useFactures';
 import { cloturerDossier, deleteDossier, DossierStatut, updateDossier } from '@/services/dossiers.service';
-import { Document as DocItem, DocumentConfidentialite, getDocumentDownloadUrl } from '@/services/documents.service';
+import {
+  Document as DocItem, DocumentConfidentialite, getDocumentDownloadUrl,
+  getDocumentAccessStatus, demanderAccesDocument,
+} from '@/services/documents.service';
+import { Facture } from '@/services/facturation.service';
+import { envoyerInvitationDossierApi, demanderPermissionConsultation, hasConsultationPermission } from '@/services/dossierInvitations.service';
+import { useAuth } from '@/hooks/useAuth';
 import { apercuAvecAppCompatible, getMimeType, telechargerDansTelephone } from '@/lib/fileViewerManager';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,22 +28,23 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   AlertCircle, ArrowLeft, Calendar, Camera, CheckCircle2, ChevronLeft, ChevronRight, Clock,
   DollarSign, Download, ExternalLink, Eye, FileSpreadsheet, FileText, Globe,
-  Image as ImageIcon, Lock, Paperclip, Pencil, Plus, RefreshCw, Scan, Share2,
-  ShieldAlert, Trash2, Upload, X,
+  Image as ImageIcon, Lock, Paperclip, Pencil, Phone, Plus, RefreshCw, Scan, Share2,
+  ShieldAlert, Trash2, Upload, X, UserPlus, Send, Key, Mail,
 } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Switch, Text,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type Tab = 'resume' | 'audiences' | 'documents' | 'finances';
+type Tab = 'resume' | 'audiences' | 'documents' | 'finances' | 'inviter';
 const TABS: { id: Tab; label: string; Icon: any }[] = [
   { id: 'resume',    label: 'Résumé',    Icon: FileText },
   { id: 'audiences', label: 'Agenda',    Icon: Calendar },
   { id: 'documents', label: 'Documents', Icon: FileText },
   { id: 'finances',  label: 'Finances',  Icon: DollarSign },
+  { id: 'inviter',   label: 'Inviter',   Icon: UserPlus },
 ];
 
 const STATUT_COLORS: Record<string, { bg: string; text: string }> = {
@@ -116,10 +123,160 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
   const [downloadingDoc, setDownloadingDoc]   = useState(false);
   const [pdfPage, setPdfPage]                 = useState(1);
 
+  // Modal Permission pour Document Secret
+  const [secretDocModal, setSecretDocModal]   = useState<{
+    visible: boolean;
+    doc: DocItem | null;
+    hasPending: boolean;
+    loading: boolean;
+  }>({
+    visible: false,
+    doc: null,
+    hasPending: false,
+    loading: false,
+  });
+
   const { dossier, rentabilite, isLoading, error, refetch } = useDossier(dossierId);
   const { audiences, refetch: refetchAud, create: createAud } = useAudiences({ dossierId, lazy: false });
   const { documents, refetch: refetchDoc, create: createDoc, remove: removeDoc } = useDocuments({ dossierId, lazy: false });
-  const { factures, totalFacture, totalEncaisse, totalImpaye } = useFactures({ dossierId });
+  const { factures, totalFacture, totalEncaisse, totalImpaye, refetch: refetchFactures, update: updateFactureHook, supprimer: deleteFactureHook } = useFactures({ dossierId });
+
+  // Modal Édition Facture
+  const [selectedFacture, setSelectedFacture] = useState<Facture | null>(null);
+  const [showEditFactureModal, setShowEditFactureModal] = useState(false);
+  const [editFactMontantHt, setEditFactMontantHt] = useState('');
+  const [editFactTva, setEditFactTva] = useState('19.25');
+  const [editFactEcheance, setEditFactEcheance] = useState('');
+  const [editFactDesc, setEditFactDesc] = useState('');
+  const [editFactStatut, setEditFactStatut] = useState<'payee' | 'envoyee'>('envoyee');
+  const [savingFacture, setSavingFacture] = useState(false);
+
+  const handleOpenEditFacture = (f: Facture) => {
+    setSelectedFacture(f);
+    setEditFactMontantHt(String(f.montantHt));
+    setEditFactTva(String(f.tauxTva));
+    setEditFactEcheance(f.dateEcheance ? f.dateEcheance.slice(0, 10) : '');
+    setEditFactDesc(f.description || '');
+    setEditFactStatut(f.statut === 'payee' ? 'payee' : 'envoyee');
+    setShowEditFactureModal(true);
+  };
+
+  const handleSaveEditFacture = async () => {
+    if (!selectedFacture) return;
+    const ht = Number(editFactMontantHt);
+    if (isNaN(ht) || ht <= 0) {
+      Alert.alert('Erreur', 'Veuillez saisir un montant HT valide.');
+      return;
+    }
+    setSavingFacture(true);
+    try {
+      await updateFactureHook(selectedFacture.id, {
+        montantHt: ht,
+        tauxTva: Number(editFactTva) || 19.25,
+        dateEcheance: editFactEcheance || undefined,
+        description: editFactDesc.trim() || undefined,
+        statut: editFactStatut,
+      });
+      setShowEditFactureModal(false);
+      setSelectedFacture(null);
+      await refetchFactures();
+      Alert.alert('✅ Succès', 'Facture mise à jour avec succès.');
+    } catch (e: any) {
+      Alert.alert('Erreur', extractErrorMessage(e));
+    } finally {
+      setSavingFacture(false);
+    }
+  };
+
+  const handleDeleteFacture = (f: Facture) => {
+    Alert.alert(
+      'Supprimer la facture',
+      `Voulez-vous supprimer définitivement la facture "${f.numeroFacture}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFactureHook(f.id);
+              setShowEditFactureModal(false);
+              setSelectedFacture(null);
+              await refetchFactures();
+              Alert.alert('✅ Succès', 'Facture supprimée.');
+            } catch (e: any) {
+              Alert.alert('Erreur', extractErrorMessage(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDeleteDocument = (doc: DocItem) => {
+    Alert.alert(
+      'Supprimer le document',
+      `Êtes-vous sûr de vouloir supprimer "${doc.nom}" ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer définitivement',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeDoc(doc.id);
+              setShowViewDocModal(false);
+              setSelectedDoc(null);
+              await refetchDoc();
+              Alert.alert('✅ Succès', 'Document supprimé.');
+            } catch (e: any) {
+              Alert.alert('Erreur', extractErrorMessage(e));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const { user } = useAuth();
+
+  // State Invitation au Dossier
+  const [invitePhone, setInvitePhone]       = useState('');
+  const [invitePassword, setInvitePassword] = useState('');
+  const [sendingInvite, setSendingInvite]   = useState(false);
+
+  const handleSendInvitation = async () => {
+    const tel = formatPhoneWithCountryCode(invitePhone);
+    const pass = invitePassword.trim();
+    if (!tel) {
+      Alert.alert('Champ requis', 'Veuillez saisir le numéro de téléphone du destinataire.');
+      return;
+    }
+    if (!pass) {
+      Alert.alert('Mot de passe requis', 'Entrez votre mot de passe pour confirmer l\'envoi de l\'invitation.');
+      return;
+    }
+
+    setSendingInvite(true);
+    try {
+      await envoyerInvitationDossierApi({
+        dossierId,
+        destinataireTelephone: tel,
+        motDePasse: pass,
+      });
+
+      setInvitePhone('');
+      setInvitePassword('');
+      Alert.alert(
+        '✅ Invitation transmise !',
+        `L'invitation au dossier ${dossier?.numeroAffaire} a été envoyée dans les notifications 🔔 de ${tel}.`,
+      );
+    } catch (e: any) {
+      Alert.alert('❌ Échec de l\'invitation', extractErrorMessage(e));
+    } finally {
+      setSendingInvite(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -358,6 +515,70 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
 
   // ── Handlers Consultation & Téléchargement de Document ──────────────────────
 
+  const checkSecretAccessAndExecute = async (doc: DocItem, action: () => void) => {
+    // Si ce n'est pas un document secret, accès direct immédiat
+    if (doc.confidentialite !== 'secret') {
+      action();
+      return;
+    }
+
+    // 1. Si l'utilisateur connecté est l'auteur qui a créé / ajouté le document
+    if (doc.creePar && Number(doc.creePar) === Number(user?.id)) {
+      action();
+      return;
+    }
+
+    // 2. Si l'utilisateur connecté est le créateur / responsable du dossier
+    if (dossier) {
+      if (
+        (dossier.avocatResponsableId && Number(dossier.avocatResponsableId) === Number(user?.id)) ||
+        (dossier.cabinetId && Number(dossier.cabinetId) === Number(user?.cabinetId))
+      ) {
+        action();
+        return;
+      }
+    }
+
+    // 3. Vérification de la permission auprès de l'API
+    try {
+      const status = await getDocumentAccessStatus(doc.id);
+      if (status.canAccess) {
+        action();
+        return;
+      }
+
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: status.hasPendingRequest,
+        loading: false,
+      });
+    } catch {
+      setSecretDocModal({
+        visible: true,
+        doc,
+        hasPending: false,
+        loading: false,
+      });
+    }
+  };
+
+  const handleDemanderAccesSecret = async () => {
+    if (!secretDocModal.doc) return;
+    setSecretDocModal(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await demanderAccesDocument(secretDocModal.doc.id);
+      setSecretDocModal(prev => ({ ...prev, loading: false, hasPending: true }));
+      Alert.alert(
+        'Demande envoyée',
+        res.message || 'Votre demande d\'autorisation a été transmise au créateur du dossier. Vous recevrez une notification dès qu\'elle sera traitée.',
+      );
+    } catch (e) {
+      setSecretDocModal(prev => ({ ...prev, loading: false }));
+      Alert.alert('Erreur', extractErrorMessage(e));
+    }
+  };
+
   const handleOpenViewDoc = (doc: DocItem) => {
     setSelectedDoc(doc);
     setPdfPage(1);
@@ -369,14 +590,16 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
    * (Adobe Acrobat, Word, Google Docs, Galerie, VLC…)
    */
   const handleConsulterDoc = async (doc: DocItem) => {
-    setDownloadingDoc(true);
-    try {
-      const url  = getDocumentDownloadUrl(doc.id);
-      const mime = getMimeType(doc.nom);
-      await apercuAvecAppCompatible(url, doc.nom, mime);
-    } finally {
-      setDownloadingDoc(false);
-    }
+    checkSecretAccessAndExecute(doc, async () => {
+      setDownloadingDoc(true);
+      try {
+        const url  = getDocumentDownloadUrl(doc.id);
+        const mime = getMimeType(doc.nom);
+        await apercuAvecAppCompatible(url, doc.nom, mime);
+      } finally {
+        setDownloadingDoc(false);
+      }
+    });
   };
 
   /**
@@ -384,14 +607,16 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
    * (Dossier Téléchargements sur Android, Fichiers sur iOS)
    */
   const handleDownloadDoc = async (doc: DocItem) => {
-    setDownloadingDoc(true);
-    try {
-      const url  = getDocumentDownloadUrl(doc.id);
-      const mime = getMimeType(doc.nom);
-      await telechargerDansTelephone(url, doc.nom, mime);
-    } finally {
-      setDownloadingDoc(false);
-    }
+    checkSecretAccessAndExecute(doc, async () => {
+      setDownloadingDoc(true);
+      try {
+        const url  = getDocumentDownloadUrl(doc.id);
+        const mime = getMimeType(doc.nom);
+        await telechargerDansTelephone(url, doc.nom, mime);
+      } finally {
+        setDownloadingDoc(false);
+      }
+    });
   };
 
 
@@ -452,7 +677,7 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── RÉSUMÉ (ID Client retiré selon demande) ── */}
+        {/* ── RÉSUMÉ ── */}
         {activeTab === 'resume' && (
           <>
             <View style={s.card}>
@@ -461,6 +686,7 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </View>
               {[
                 { label: 'Titre de l\'affaire', val: dossier.titre },
+                { label: 'Client associé',   val: dossier.client?.nomComplet || (dossier.clientId ? `Client #${dossier.clientId}` : 'Non spécifié') },
                 { label: 'Statut',           val: dossier.statut },
                 { label: "Date d'ouverture", val: fmtD(dossier.dateOuverture) },
                 { label: 'Juridiction',      val: dossier.juridiction ?? 'Non spécifiée' },
@@ -472,6 +698,34 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                 </View>
               ))}
             </View>
+
+            {dossier.client && (
+              <View style={s.card}>
+                <View style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={s.cardTitle}>Coordonnées du client</Text>
+                  <View style={{ backgroundColor: C.amber500 + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ color: C.amber700, fontSize: 11, fontWeight: '700' }}>Fiche Client</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: C.amber500 + '20', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: C.amber700, fontSize: 15, fontWeight: '800' }}>
+                      {dossier.client.nomComplet ? dossier.client.nomComplet.charAt(0).toUpperCase() : 'C'}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{dossier.client.nomComplet}</Text>
+                    {dossier.client.telephone ? (
+                      <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }}>📞 {dossier.client.telephone}</Text>
+                    ) : null}
+                    {dossier.client.email ? (
+                      <Text style={{ fontSize: 12, color: C.gray600, marginTop: 1 }}>✉️ {dossier.client.email}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            )}
+
             {dossier.notes ? (
               <View style={s.notesCard}>
                 <Text style={s.notesTitle}>Notes internes</Text>
@@ -601,7 +855,7 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                 <TouchableOpacity
                   key={String(doc.id)}
                   style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
-                  onPress={() => handleOpenViewDoc(doc)}
+                  onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
                   activeOpacity={0.85}
                 >
                   <View style={[s.docIcon, { backgroundColor: styleMeta.bg }]}>
@@ -628,13 +882,13 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                   <View style={{ gap: 6 }}>
                     <TouchableOpacity
                       style={s.docActionBtn}
-                      onPress={() => handleOpenViewDoc(doc)}
+                      onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
                     >
                       <Eye color={C.blue600} size={16} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={s.docActionBtn}
-                      onPress={() => handleDownloadDoc(doc)}
+                      onPress={() => checkSecretAccessAndExecute(doc, () => handleDownloadDoc(doc))}
                     >
                       <Download color={C.green600} size={16} />
                     </TouchableOpacity>
@@ -692,30 +946,110 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                 </TouchableOpacity>
               </View>
             ) : factures.map(f => (
-              <View key={String(f.id)} style={s.card}>
+              <TouchableOpacity
+                key={String(f.id)}
+                style={s.card}
+                onPress={() => handleOpenEditFacture(f)}
+                activeOpacity={0.85}
+              >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <Text style={s.factNum}>{f.numeroFacture}</Text>
                   <View style={[s.statusBadge,
                     f.statut === 'payee'     ? { backgroundColor: C.green100 } :
                     f.statut === 'en_retard' ? { backgroundColor: C.red100 } :
-                    f.statut === 'brouillon' ? { backgroundColor: C.gray100 } :
-                                              { backgroundColor: C.orange100 },
+                                               { backgroundColor: C.blue100 },
                   ]}>
                     <Text style={[s.statusText,
                       f.statut === 'payee'     ? { color: C.green700 } :
                       f.statut === 'en_retard' ? { color: C.red700 } :
-                      f.statut === 'brouillon' ? { color: C.gray600 } :
-                                                { color: C.orange700 },
+                                                 { color: C.blue700 },
                     ]}>
-                      {f.statut === 'payee' ? 'Payée' : f.statut === 'en_retard' ? 'En retard' : f.statut === 'brouillon' ? 'Brouillon' : f.statut === 'envoyee' ? 'Envoyée' : 'Partielle'}
+                      {f.statut === 'payee' ? 'Encaissée' : f.statut === 'en_retard' ? 'En retard' : f.statut === 'partielle' ? 'Partielle' : 'Impayée'}
                     </Text>
                   </View>
                 </View>
                 <Text style={s.factMeta}>TTC : <Text style={{ fontWeight: '700', color: C.gray900 }}>{fmtM(Number(f.montantTtc))}</Text></Text>
                 <Text style={s.factMeta}>Encaissé : <Text style={{ fontWeight: '700', color: C.green600 }}>{fmtM(Number(f.montantEncaisse))}</Text></Text>
-              </View>
+                <Text style={{ fontSize: 11, color: C.amber600, marginTop: 4, fontWeight: '600' }}>Appuyer pour modifier ou changer le statut</Text>
+              </TouchableOpacity>
             ))}
           </>
+        )}
+
+        {/* ── ONGLET INVITER UNE PERSONNE ── */}
+        {activeTab === 'inviter' && (
+          <View style={s.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: C.amber100, alignItems: 'center', justifyContent: 'center' }}>
+                <UserPlus color={C.amber700} size={20} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.cardTitle}>Inviter une personne au dossier</Text>
+                <Text style={{ fontSize: 12, color: C.gray500 }}>
+                  Partagez les accès de cette affaire en envoyant une invitation sécurisée par email.
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 14, marginTop: 8 }}>
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray400, marginBottom: 6 }}>
+                  Numéro de téléphone de la personne à inviter *
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.gray800, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.gray700 }}>
+                  <Phone color={C.amber500} size={18} />
+                  <TextInput
+                    style={{ flex: 1, height: 46, color: C.white, fontSize: 14 }}
+                    value={invitePhone}
+                    onChangeText={setInvitePhone}
+                    placeholder="ex: 6XX XX XX XX"
+                    placeholderTextColor={C.gray500}
+                    keyboardType="phone-pad"
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray400, marginBottom: 6 }}>
+                  Votre Mot de Passe (Confirmation de sécurité) *
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.gray800, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.gray700 }}>
+                  <Key color={C.amber500} size={18} />
+                  <TextInput
+                    style={{ flex: 1, height: 46, color: C.white, fontSize: 14 }}
+                    value={invitePassword}
+                    onChangeText={setInvitePassword}
+                    placeholder="Saisissez votre mot de passe..."
+                    placeholderTextColor={C.gray500}
+                    secureTextEntry
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  backgroundColor: C.amber500, borderRadius: 14, paddingVertical: 14, marginTop: 10,
+                  opacity: (sendingInvite || !invitePhone.trim() || !invitePassword.trim()) ? 0.6 : 1,
+                }}
+                onPress={handleSendInvitation}
+                disabled={sendingInvite || !invitePhone.trim() || !invitePassword.trim()}
+                activeOpacity={0.85}
+              >
+                {sendingInvite ? (
+                  <ActivityIndicator color={C.gray900} size="small" />
+                ) : (
+                  <>
+                    <Send color={C.gray900} size={18} />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                      Envoyer l'invitation
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
       </ScrollView>
 
@@ -885,6 +1219,17 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                     <Download color={C.white} size={18} />
                     <Text style={[s.downloadActionText, { color: C.white }]}>Télécharger</Text>
                   </TouchableOpacity>
+
+                  {(selectedDoc.creePar === user?.id || (selectedDoc as any).cabinetId === user?.cabinetId) && (
+                    <TouchableOpacity
+                      style={[s.downloadActionBtn, { backgroundColor: '#ef444415', borderWidth: 1, borderColor: '#ef444440' }]}
+                      onPress={() => handleDeleteDocument(selectedDoc)}
+                      activeOpacity={0.85}
+                    >
+                      <Trash2 color="#ef4444" size={18} />
+                      <Text style={[s.downloadActionText, { color: '#ef4444' }]}>Supprimer le document</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 <TouchableOpacity style={s.cancelBtn} onPress={() => setShowViewDocModal(false)} activeOpacity={0.8}>
@@ -900,10 +1245,20 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
       {/* ── MODAL ÉDITION DOSSIER ── */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowEditModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Modifier le dossier</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Modifier le dossier</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
               <View style={{ marginBottom: 12 }}>
                 <Text style={s.fieldLabel}>Titre de l'affaire *</Text>
                 <TextInput
@@ -979,16 +1334,27 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
 
       {/* ── MODAL AJOUT DOCUMENT (PDF, WORD, EXCEL, PHOTO, SCAN) ── */}
       <Modal visible={showDocModal} transparent animationType="slide" onRequestClose={() => setShowDocModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowDocModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Ajouter un document au dossier</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Ajouter un document au dossier</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
 
               {/* Options de Captures / Importation */}
               <Text style={s.sourceSectionTitle}>Source du document</Text>
@@ -1093,16 +1459,27 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
 
       {/* ── MODAL AGENDA / ÉVÉNEMENT ── */}
       <Modal visible={showAudModal} transparent animationType="slide" onRequestClose={() => setShowAudModal(false)}>
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowAudModal(false)}>
-          <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Ajouter au calendrier de l'affaire</Text>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView
+            style={{ width: '100%', maxHeight: '90%' }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+              <View style={s.handle} />
+              <Text style={s.sheetTitle}>Ajouter au calendrier de l'affaire</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ paddingBottom: 320 }}
+              >
               
               {/* Catégories d'événements */}
               <Text style={s.fieldLabel}>Type d'événement *</Text>
@@ -1206,8 +1583,251 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </TouchableOpacity>
+    </Modal>
+
+      {/* ── MODAL PERMISSION DOCUMENT SECRET ── */}
+      <Modal
+        visible={secretDocModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+      >
+        <View style={s.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+          />
+          <View style={[s.modalCard, { maxWidth: 420, padding: 22 }]}>
+            {/* Header with Icon */}
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{
+                width: 64, height: 64, borderRadius: 32,
+                backgroundColor: C.purple100, alignItems: 'center', justifyContent: 'center',
+                marginBottom: 12, borderWidth: 2, borderColor: C.purple300,
+              }}>
+                <Lock color={C.purple700} size={30} />
+              </View>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: C.purple50, paddingHorizontal: 10, paddingVertical: 4,
+                borderRadius: 20, borderWidth: 1, borderColor: C.purple200, marginBottom: 8,
+              }}>
+                <ShieldAlert color={C.purple600} size={13} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.purple700, letterSpacing: 0.5 }}>
+                  CONFIDENTIALITÉ : SECRET
+                </Text>
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: C.gray900, textAlign: 'center' }}>
+                Document classé Secret
+              </Text>
+            </View>
+
+            {/* Document Info Card */}
+            <View style={{
+              backgroundColor: C.gray50, borderRadius: 12, padding: 14,
+              borderWidth: 1, borderColor: C.gray200, marginBottom: 16,
+            }}>
+              <Text style={{ fontSize: 12, color: C.gray500, fontWeight: '600', marginBottom: 4 }}>
+                PIÈCE SOUMISE À RESTRICTION :
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }} numberOfLines={2}>
+                {secretDocModal.doc?.nom || 'Document secret'}
+              </Text>
+              {secretDocModal.doc?.tailleKo ? (
+                <Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>
+                  Taille : {secretDocModal.doc.tailleKo} Ko
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Explication Message */}
+            <Text style={{ fontSize: 13, color: C.gray600, lineHeight: 20, textAlign: 'center', marginBottom: 18 }}>
+              {secretDocModal.hasPending
+                ? '⏳ Votre demande d\'autorisation a déjà été transmise au créateur du dossier. Elle est actuellement en attente de validation.'
+                : 'Ce document est protégé. Pour le consulter ou le télécharger, vous devez envoyer une demande de permission au créateur du dossier.'}
+            </Text>
+
+            {/* Actions */}
+            {secretDocModal.hasPending ? (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: C.gray800, paddingVertical: 14, borderRadius: 12,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+                onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                activeOpacity={0.85}
+              >
+                <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                  Fermer (En attente de réponse)
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ gap: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: C.purple600, paddingVertical: 14, borderRadius: 12,
+                    alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
+                  }}
+                  onPress={handleDemanderAccesSecret}
+                  disabled={secretDocModal.loading}
+                  activeOpacity={0.85}
+                >
+                  {secretDocModal.loading ? (
+                    <ActivityIndicator color={C.white} size="small" />
+                  ) : (
+                    <>
+                      <Send color={C.white} size={16} />
+                      <Text style={{ color: C.white, fontSize: 14, fontWeight: '700' }}>
+                        Demander la permission
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+                    justifyContent: 'center', backgroundColor: C.gray100,
+                  }}
+                  onPress={() => setSecretDocModal(prev => ({ ...prev, visible: false }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: C.gray700, fontSize: 13, fontWeight: '600' }}>
+                    Annuler
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
       </Modal>
+
+      {/* ── MODAL ÉDITION FACTURE & CHANGEMENT STATUT ── */}
+      {selectedFacture && (
+        <Modal
+          visible={showEditFactureModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowEditFactureModal(false)}
+        >
+          <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowEditFactureModal(false)}>
+            <KeyboardAvoidingView
+              style={{ width: '100%', maxHeight: '90%' }}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
+                <View style={s.handle} />
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <Text style={s.sheetTitle}>Modifier {selectedFacture.numeroFacture}</Text>
+                  <TouchableOpacity style={s.closeBtn} onPress={() => setShowEditFactureModal(false)}>
+                    <X color={C.gray600} size={18} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
+                  {/* Sélecteur de Statut : Impayée vs Encaissée */}
+                  <Text style={s.fieldLabel}>Statut de la facture *</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                    <TouchableOpacity
+                      style={[
+                        s.chipBtn,
+                        { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+                        editFactStatut === 'envoyee' && { backgroundColor: C.blue50, borderColor: C.blue600, borderWidth: 1.5 },
+                      ]}
+                      onPress={() => setEditFactStatut('envoyee')}
+                      activeOpacity={0.8}
+                    >
+                      <Clock color={editFactStatut === 'envoyee' ? C.blue600 : C.gray500} size={16} />
+                      <Text style={[s.chipText, editFactStatut === 'envoyee' && { color: C.blue700, fontWeight: '700' }]}>
+                        Impayée
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        s.chipBtn,
+                        { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+                        editFactStatut === 'payee' && { backgroundColor: C.green50, borderColor: C.green600, borderWidth: 1.5 },
+                      ]}
+                      onPress={() => setEditFactStatut('payee')}
+                      activeOpacity={0.8}
+                    >
+                      <CheckCircle2 color={editFactStatut === 'payee' ? C.green600 : C.gray500} size={16} />
+                      <Text style={[s.chipText, editFactStatut === 'payee' && { color: C.green700, fontWeight: '700' }]}>
+                        Encaissée
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={s.fieldLabel}>Montant Hors Taxes (FCFA) *</Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={editFactMontantHt}
+                    onChangeText={setEditFactMontantHt}
+                    keyboardType="numeric"
+                    placeholder="ex: 500000"
+                    placeholderTextColor={C.gray400}
+                  />
+
+                  <Text style={s.fieldLabel}>Taux TVA (%)</Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={editFactTva}
+                    onChangeText={setEditFactTva}
+                    keyboardType="numeric"
+                    placeholder="19.25"
+                    placeholderTextColor={C.gray400}
+                  />
+
+                  <Text style={s.fieldLabel}>Date d'échéance (AAAA-MM-JJ)</Text>
+                  <TextInput
+                    style={s.fieldInput}
+                    value={editFactEcheance}
+                    onChangeText={setEditFactEcheance}
+                    placeholder="AAAA-MM-JJ"
+                    placeholderTextColor={C.gray400}
+                  />
+
+                  <Text style={s.fieldLabel}>Description / Prestations</Text>
+                  <TextInput
+                    style={[s.fieldInput, { height: 75, textAlignVertical: 'top' }]}
+                    value={editFactDesc}
+                    onChangeText={setEditFactDesc}
+                    multiline
+                    numberOfLines={3}
+                    placeholder="Détail des honoraires et diligences..."
+                    placeholderTextColor={C.gray400}
+                  />
+
+                  <TouchableOpacity
+                    style={[s.saveBtn, savingFacture && { opacity: 0.6 }, { marginTop: 10 }]}
+                    onPress={handleSaveEditFacture}
+                    disabled={savingFacture}
+                    activeOpacity={0.85}
+                  >
+                    {savingFacture ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Enregistrer les modifications</Text>}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[s.cancelBtn, { backgroundColor: '#ef444415', borderColor: '#ef444440', borderWidth: 1, marginTop: 8 }]}
+                    onPress={() => handleDeleteFacture(selectedFacture)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[s.cancelBtnText, { color: '#ef4444' }]}>Supprimer la facture</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={s.cancelBtn} onPress={() => setShowEditFactureModal(false)} activeOpacity={0.8}>
+                    <Text style={s.cancelBtnText}>Fermer</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
+          </TouchableOpacity>
+        </Modal>
+      )}
 
       {/* Pop-up Calendrier & Choix d'heure (Dates passées bloquées) */}
       <DateTimePickerModal
@@ -1288,6 +1908,8 @@ const s = StyleSheet.create({
   factNum:        { fontSize: 14, fontWeight: '600', color: C.gray900 },
   factMeta:       { fontSize: 13, color: C.gray600, marginTop: 4 },
   overlay:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalCard:      { backgroundColor: C.white, borderRadius: 20, padding: 20, width: '100%', maxWidth: 420 },
   sheet:          { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%', padding: 20 },
   sheetDocViewer: { backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%', padding: 20 },
   handle:         { width: 40, height: 4, backgroundColor: C.gray200, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },

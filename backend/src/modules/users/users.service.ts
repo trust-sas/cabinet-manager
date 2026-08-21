@@ -14,7 +14,8 @@ export interface SafeUserProfile {
   id: number;
   cabinetId: number;
   nom: string;
-  email: string;
+  telephone?: string | null;
+  email?: string | null;
   role: string;
   permissions: string[];
   authentif2faActif: boolean;
@@ -23,7 +24,10 @@ export interface SafeUserProfile {
 
 export interface CreateUserParams {
   nom: string;
-  email: string;
+  prenom?: string;
+  telephone: string;
+  email?: string;
+  dateNaissance?: string;
   motDePasse: string;
   role: RoleLibelle;
   /** Si non fourni, utilise le premier cabinet disponible (mode démo) */
@@ -39,11 +43,47 @@ export class UsersService {
     private readonly roleAccesRepository: Repository<RoleAcces>,
   ) {}
 
+  /* Recherche par email (optionnel / hérité)
   async findByEmail(email: string): Promise<Utilisateur | null> {
     return this.utilisateurRepository.findOne({
       where: { email, deletedAt: IsNull() },
       relations: ['roleAcces'],
     });
+  }
+  */
+
+  async findByEmail(email: string): Promise<Utilisateur | null> {
+    if (!email) return null;
+    return this.utilisateurRepository.findOne({
+      where: { email: email.trim().toLowerCase(), deletedAt: IsNull() },
+      relations: ['roleAcces'],
+    });
+  }
+
+  /** Recherche prioritaire par téléphone (ou identifiant) avec normalisation +237 */
+  async findByTelephone(telephone: string): Promise<Utilisateur | null> {
+    if (!telephone) return null;
+    const cleanPhone = telephone.replace(/\s+/g, '').trim();
+    let normalizedPhone = cleanPhone;
+    if (!normalizedPhone.startsWith('+') && !normalizedPhone.includes('@')) {
+      normalizedPhone = `+237${normalizedPhone.replace(/^0/, '')}`;
+    }
+    return this.utilisateurRepository.findOne({
+      where: [
+        { telephone: cleanPhone, deletedAt: IsNull() },
+        { telephone: normalizedPhone, deletedAt: IsNull() },
+        { telephone: telephone.trim(), deletedAt: IsNull() },
+      ],
+      relations: ['roleAcces'],
+    });
+  }
+
+  async findByIdentifiant(identifiant: string): Promise<Utilisateur | null> {
+    if (!identifiant) return null;
+    const clean = identifiant.trim();
+    const userByPhone = await this.findByTelephone(clean);
+    if (userByPhone) return userByPhone;
+    return this.findByEmail(clean);
   }
 
   async findById(id: number): Promise<Utilisateur> {
@@ -60,18 +100,23 @@ export class UsersService {
   }
 
   /**
-   * Crée un nouvel utilisateur via l'auto-inscription publique.
-   * Le compte est créé INACTIF (actif = false) → l'admin doit l'activer.
-   * Si aucun cabinetId n'est fourni, utilise le premier cabinet actif (mode démo).
+   * Crée un nouvel utilisateur avec le N° de téléphone obligatoire et l'email optionnel.
    */
   async createUser(params: CreateUserParams): Promise<SafeUserProfile> {
-    const { nom, email, motDePasse, role, cabinetId } = params;
+    const { nom, telephone, email, motDePasse, role, cabinetId } = params;
 
-    // 1. Unicité de l'email (global)
-    const existant = await this.utilisateurRepository.findOne({ where: { email } });
+    const cleanPhone = telephone.replace(/\s+/g, '').trim();
+    if (!cleanPhone) {
+      throw new ConflictException({
+        error: { code: 'BAD_REQUEST', message: 'Le numéro de téléphone est obligatoire.', status: 400 },
+      });
+    }
+
+    // 1. Unicité du téléphone (global)
+    const existant = await this.findByTelephone(cleanPhone);
     if (existant) {
       throw new ConflictException({
-        error: { code: 'CONFLICT', message: 'Un compte avec cet email existe déjà.', status: 409 },
+        error: { code: 'CONFLICT', message: 'Un compte avec ce numéro de téléphone existe déjà.', status: 409 },
       });
     }
 
@@ -88,19 +133,15 @@ export class UsersService {
     // 3. Cabinet cible
     let resolvedCabinetId = cabinetId;
     if (!resolvedCabinetId) {
-      const result: { id: number }[] = await this.utilisateurRepository.query(
-        'SELECT id FROM cabinets WHERE actif = true ORDER BY id LIMIT 1',
+      const res = await this.utilisateurRepository.query(
+        'INSERT INTO cabinets (nom, actif) VALUES ($1, true) RETURNING id',
+        [`Cabinet de ${nom.trim()}`],
       );
-      if (!result || result.length === 0) {
-        throw new NotFoundException({
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Aucun cabinet actif trouvé. Contactez l\'administrateur.',
-            status: 404,
-          },
-        });
+      if (res && res.length > 0) {
+        resolvedCabinetId = Number(res[0].id);
+      } else {
+        resolvedCabinetId = 1;
       }
-      resolvedCabinetId = Number(result[0].id);
     }
 
     // 4. Hash argon2id
@@ -111,12 +152,13 @@ export class UsersService {
       parallelism: 4,
     });
 
-    // 5. Création inactif
+    // 5. Création de l'utilisateur avec téléphone obligatoire et email optionnel
     const nouvelUtilisateur = this.utilisateurRepository.create({
       cabinetId: resolvedCabinetId,
       roleAccesId: roleAcces.id,
       nom: nom.trim(),
-      email: email.trim().toLowerCase(),
+      telephone: cleanPhone,
+      email: email ? email.trim().toLowerCase() : null,
       motDePasseHash,
       role,
       actif: true,
@@ -196,12 +238,39 @@ export class UsersService {
     return this.toSafeProfile(updated);
   }
 
+  /** Supprimer un compte utilisateur (soft delete) */
+  async deleteUser(id: number, cabinetId: number, currentUserId: number): Promise<{ success: boolean; message: string }> {
+    if (Number(id) === Number(currentUserId)) {
+      throw new ConflictException({
+        error: { code: 'CANNOT_DELETE_SELF', message: 'Vous ne pouvez pas supprimer votre propre compte.', status: 400 },
+      });
+    }
+
+    const user = await this.utilisateurRepository.findOne({
+      where: { id, cabinetId, deletedAt: IsNull() },
+    });
+
+    if (!user) {
+      throw new NotFoundException({
+        error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable.', status: 404 },
+      });
+    }
+
+    user.deletedAt = new Date();
+    user.actif = false;
+    user.updatedAt = new Date();
+    await this.utilisateurRepository.save(user);
+
+    return { success: true, message: `Le compte de ${user.nom} a été supprimé avec succès.` };
+  }
+
   /** Profil public — jamais renvoyer mot_de_passe_hash / secret 2FA. */
   toSafeProfile(utilisateur: Utilisateur): SafeUserProfile {
     return {
       id: utilisateur.id,
       cabinetId: utilisateur.cabinetId,
       nom: utilisateur.nom,
+      telephone: utilisateur.telephone,
       email: utilisateur.email,
       role: utilisateur.role,
       permissions: (utilisateur.roleAcces as RoleAcces & { permissions?: string[] })?.permissions ?? [],

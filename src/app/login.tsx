@@ -1,163 +1,201 @@
-import { AppColors as C } from '@/constants/theme';
-import { extractErrorMessage, useAuth } from '@/hooks/useAuth';
+/**
+ * src/app/login.tsx
+ * Écran de connexion — Numéro de téléphone + Mot de passe.
+ * Design 2026 : thème adaptatif, keyboard fix Android, ErrorBanner animé, LoadingOverlay.
+ */
+import { extractErrorMessage } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
+import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { LoadingOverlay } from '@/components/ui/LoadingOverlay';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, ChevronRight, Eye, EyeOff, Lock, Settings, Shield } from 'lucide-react-native';
+import {
+  ArrowLeft, ChevronRight, Eye, EyeOff, Lock, Phone, Shield,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import {
-    ActivityIndicator, KeyboardAvoidingView, Platform,
-    ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppColors as C } from '@/constants/theme';
 
 type Step = 'credentials' | '2fa';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login, verify2fa } = useAuth();
+  const { colors, isDark } = useTheme();
 
   const [step, setStep] = useState<Step>('credentials');
+  const [telephone, setTelephone] = useState('');
+  /* Authentification par email mise en commentaire / optionnelle
   const [email, setEmail] = useState('');
+  */
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [code2fa, setCode2fa] = useState('');
   const [preAuthToken, setPreAuthToken] = useState('');
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // ── Étape 1 : email + mot de passe ────────────────────────────────────────
+  const clearError = () => { if (error) setError(''); };
 
-  const handleCredentials = async () => {
-    if (!email.trim() || !password) {
-      setError('Veuillez renseigner votre email et votre mot de passe.');
+  // ── Connexion par Numéro de Téléphone ────────────────────────────────────
+
+  const handleCredentials = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+
+    if (!telephone.trim()) {
+      setError('Veuillez renseigner votre numéro de téléphone.');
+      return;
+    }
+    if (!password) {
+      setError('Veuillez renseigner votre mot de passe.');
       return;
     }
     setError('');
     setIsLoading(true);
     try {
-      const outcome = await login(email.trim().toLowerCase(), password);
-
+      const outcome = await login(telephone.trim(), password);
       if ('requiresTwoFactor' in outcome && outcome.requiresTwoFactor) {
         setPreAuthToken(outcome.preAuthToken);
         setStep('2fa');
       }
-    } catch (e: any) {
-      const msg = extractErrorMessage(e);
-      if (
-        !msg ||
-        msg.toLowerCase().includes('401') ||
-        msg.toLowerCase().includes('unauthorized') ||
-        msg.toLowerCase().includes('incorrect') ||
-        msg.toLowerCase().includes('invalide') ||
-        msg.toLowerCase().includes('credentials') ||
-        msg.toLowerCase().includes('failed')
-      ) {
-        setError('Adresse email ou mot de passe incorrect. Veuillez ré-essayer.');
-      } else {
-        setError(msg);
-      }
+    } catch (err: any) {
+      setError('Numéro de téléphone ou mot de passe incorrect. Veuillez vérifier vos identifiants.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ── Étape 2 : code TOTP ───────────────────────────────────────────────────
+  // ── Vérification 2FA ─────────────────────────────────────────────────────
 
-  const handle2FA = async () => {
+  const handle2FA = async (e?: any) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     if (code2fa.length !== 6) return;
     setError('');
     setIsLoading(true);
     try {
       await verify2fa(preAuthToken, code2fa);
-      // useAuth redirige automatiquement vers /(tabs) après succès
     } catch (e) {
-      const msg = extractErrorMessage(e);
-      setError(msg.toLowerCase().includes('invalide') || msg.toLowerCase().includes('invalid')
-        ? 'Code invalide. Vérifiez votre application d\'authentification.'
-        : msg);
+      setError("Code d'authentification invalide. Veuillez vérifier votre application.");
       setCode2fa('');
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <View style={s.root}>
-      <SafeAreaView style={s.safe}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+  const inputBorderColor = (hasValue: boolean) =>
+    hasValue ? colors.primary : colors.inputBorder;
 
+  return (
+    <View style={[s.root, { backgroundColor: colors.bg }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+      <SafeAreaView style={s.safe}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <ScrollView
+            contentContainerStyle={[s.scroll, { flexGrow: 1, paddingBottom: 280, paddingTop: 20 }]}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={true}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+          >
             {/* Logo */}
             <View style={s.logoWrap}>
-              <View style={s.logoBox}>
-                <Lock color={C.gray900} size={40} />
+              <View style={[s.logoBox, { shadowColor: C.amber500 }]}>
+                <Lock color={C.gray900} size={36} />
               </View>
-              <Text style={s.appTitle}>Cabinet Manager</Text>
-              <Text style={s.appSub}>Gestion d'Affaires Juridiques</Text>
+              <Text style={[s.appTitle, { color: colors.text }]}>Cabinet Manager</Text>
+              <Text style={[s.appSub, { color: colors.primary }]}>Gestion d'Affaires Juridiques</Text>
             </View>
 
-            {/* ── Étape credentials ── */}
             {step === 'credentials' ? (
               <View style={s.form}>
-                <View style={s.field}>
-                  <Text style={s.label}>Email</Text>
-                  <TextInput
-                    style={s.input}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="nom@cabinet.cm"
-                    placeholderTextColor={C.gray500}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    returnKeyType="next"
-                  />
+
+                {/* Titre */}
+                <View style={{ marginBottom: 4 }}>
+                  <Text style={[s.formTitle, { color: colors.text }]}>Connexion</Text>
+                  <Text style={[s.formSub, { color: colors.textMuted }]}>
+                    Connectez-vous à votre espace avocat
+                  </Text>
                 </View>
 
+                {/* Numéro de téléphone */}
                 <View style={s.field}>
-                  <Text style={s.label}>Mot de passe</Text>
-                  <View style={s.passWrap}>
+                  <Text style={[s.label, { color: colors.textSecondary }]}>Numéro de téléphone</Text>
+                  <View style={[s.inputWrap, {
+                    backgroundColor: colors.inputBg,
+                    borderColor: inputBorderColor(telephone.length > 0),
+                  }]}>
+                    <Phone color={telephone.length > 0 ? colors.primary : colors.textMuted} size={18} />
                     <TextInput
-                      style={[s.input, { flex: 1, borderWidth: 0 }]}
+                      style={[s.input, { color: colors.inputText }]}
+                      value={telephone}
+                      onChangeText={(t) => { setTelephone(t); clearError(); }}
+                      placeholder="6XX XX XX XX"
+                      placeholderTextColor={colors.inputPlaceholder}
+                      keyboardType="phone-pad"
+                      autoCapitalize="none"
+                      returnKeyType="next"
+                    />
+                  </View>
+                </View>
+
+                {/* Mot de passe */}
+                <View style={s.field}>
+                  <Text style={[s.label, { color: colors.textSecondary }]}>Mot de passe</Text>
+                  <View style={[s.inputWrap, {
+                    backgroundColor: colors.inputBg,
+                    borderColor: inputBorderColor(password.length > 0),
+                  }]}>
+                    <Lock color={password.length > 0 ? colors.primary : colors.textMuted} size={18} />
+                    <TextInput
+                      style={[s.input, { flex: 1, color: colors.inputText }]}
                       value={password}
-                      onChangeText={setPassword}
+                      onChangeText={(t) => { setPassword(t); clearError(); }}
                       placeholder="••••••••"
-                      placeholderTextColor={C.gray500}
+                      placeholderTextColor={colors.inputPlaceholder}
                       secureTextEntry={!showPassword}
                       autoComplete="password"
                       returnKeyType="done"
                       onSubmitEditing={handleCredentials}
                     />
-                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={s.eyeBtn}>
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={s.eyeBtn}
+                      hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                    >
                       {showPassword
-                        ? <EyeOff color={C.gray400} size={20} />
-                        : <Eye color={C.gray400} size={20} />}
+                        ? <EyeOff color={colors.textMuted} size={18} />
+                        : <Eye color={colors.textMuted} size={18} />}
                     </TouchableOpacity>
                   </View>
                 </View>
 
-                {/* Info 2FA (informatif, géré par le serveur) */}
-                <View style={s.toggleRow}>
-                  <Shield color={C.amber400} size={18} />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={s.toggleTitle}>Vérification en 2 étapes</Text>
-                    <Text style={s.toggleSub}>Activée selon votre profil de sécurité</Text>
-                  </View>
-                </View>
+                {/* Erreur */}
+                <ErrorBanner message={error} />
 
-                <TouchableOpacity style={s.forgotBtn}>
-                  <Text style={s.forgotText}>Mot de passe oublié ?</Text>
-                </TouchableOpacity>
-
-                {error !== '' && (
-                  <View style={s.errorBox}>
-                    <Text style={s.errorText}>{error}</Text>
-                  </View>
-                )}
-
+                {/* Bouton connexion */}
                 <TouchableOpacity
-                  style={[s.primaryBtn, (isLoading || !email || !password) && s.btnDisabled]}
+                  style={[s.primaryBtn, (isLoading || !telephone || !password) && s.btnDisabled]}
                   onPress={handleCredentials}
-                  disabled={isLoading || !email || !password}
+                  disabled={isLoading || !telephone || !password}
                   activeOpacity={0.85}
                 >
                   {isLoading
@@ -167,6 +205,7 @@ export default function LoginScreen() {
                         <ChevronRight color={C.gray900} size={18} />
                       </>}
                 </TouchableOpacity>
+
               </View>
 
             ) : (
@@ -176,28 +215,37 @@ export default function LoginScreen() {
                   onPress={() => { setStep('credentials'); setCode2fa(''); setError(''); }}
                   style={s.backBtn}
                 >
-                  <ArrowLeft color={C.gray400} size={18} />
-                  <Text style={s.backText}>Retour</Text>
+                  <ArrowLeft color={colors.textMuted} size={18} />
+                  <Text style={[s.backText, { color: colors.textMuted }]}>Retour</Text>
                 </TouchableOpacity>
 
-                <View style={s.tfaCard}>
-                  <View style={s.tfaIconWrap}>
-                    <Shield color={C.amber400} size={28} />
+                <View style={[s.tfaCard, {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.primaryLight,
+                }]}>
+                  <View style={[s.tfaIconWrap, { backgroundColor: colors.primaryLight }]}>
+                    <Shield color={colors.primary} size={28} />
                   </View>
-                  <Text style={s.tfaTitle}>Vérification en 2 étapes</Text>
-                  <Text style={s.tfaDesc}>
+                  <Text style={[s.tfaTitle, { color: colors.text }]}>Vérification en 2 étapes</Text>
+                  <Text style={[s.tfaDesc, { color: colors.textMuted }]}>
                     Entrez le code à 6 chiffres généré par votre application d'authentification.
                   </Text>
                 </View>
 
                 <View style={s.field}>
-                  <Text style={[s.label, { textAlign: 'center' }]}>Code d'authentification</Text>
+                  <Text style={[s.label, { color: colors.textSecondary, textAlign: 'center' }]}>
+                    Code d'authentification
+                  </Text>
                   <TextInput
-                    style={[s.input, s.codeInput]}
+                    style={[s.codeInput, {
+                      color: colors.text,
+                      backgroundColor: colors.inputBg,
+                      borderColor: code2fa.length > 0 ? colors.primary : colors.inputBorder,
+                    }]}
                     value={code2fa}
                     onChangeText={t => setCode2fa(t.replace(/\D/g, '').slice(0, 6))}
                     placeholder="000000"
-                    placeholderTextColor={C.gray600}
+                    placeholderTextColor={colors.inputPlaceholder}
                     keyboardType="number-pad"
                     maxLength={6}
                     autoFocus
@@ -205,11 +253,7 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                {error !== '' && (
-                  <View style={s.errorBox}>
-                    <Text style={s.errorText}>{error}</Text>
-                  </View>
-                )}
+                <ErrorBanner message={error} />
 
                 <TouchableOpacity
                   style={[s.primaryBtn, (isLoading || code2fa.length < 6) && s.btnDisabled]}
@@ -224,102 +268,78 @@ export default function LoginScreen() {
               </View>
             )}
 
+            {/* Footer */}
             <View style={s.footer}>
               <View style={s.registerRow}>
-                <Text style={s.registerText}>Pas encore de compte ? </Text>
+                <Text style={[s.registerText, { color: colors.textMuted }]}>Pas encore de compte ? </Text>
                 <TouchableOpacity onPress={() => router.push('/register' as any)} activeOpacity={0.7}>
-                  <Text style={s.registerLink}>Créer un compte</Text>
+                  <Text style={[s.registerLink, { color: colors.primary }]}>Créer un compte</Text>
                 </TouchableOpacity>
               </View>
-              <Text style={s.footerText}>Cabinet d'Avocats • Cameroun</Text>
-              <Text style={s.footerVersion}>Version 1.0.0 • Données chiffrées TLS</Text>
-              <TouchableOpacity
-                style={s.adminLink}
-                onPress={() => router.replace('/admin' as any)}
-                activeOpacity={0.7}
-              >
-                <Settings color={C.red500} size={14} />
-                <Text style={s.adminLinkText}>Accès Administrateur</Text>
-              </TouchableOpacity>
+              <Text style={[s.footerText, { color: colors.textMuted }]}>Cabinet d'Avocats • Cameroun</Text>
             </View>
 
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <LoadingOverlay visible={isLoading} message="Connexion en cours…" />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.gray900 },
+  root: { flex: 1 },
   safe: { flex: 1 },
-  scroll: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 32 },
-  logoWrap: { alignItems: 'center', marginTop: 40, marginBottom: 32 },
+  scroll: { flexGrow: 1, paddingHorizontal: 24 },
+  logoWrap: { alignItems: 'center', marginTop: 16, marginBottom: 16 },
   logoBox: {
-    width: 80, height: 80, backgroundColor: C.amber500, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-    shadowColor: C.amber500, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+    width: 64, height: 64, backgroundColor: C.amber500, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
-  appTitle: { fontSize: 28, fontWeight: '700', color: C.white, marginBottom: 4 },
-  appSub: { fontSize: 14, color: C.amber400 },
-  form: { gap: 16 },
+  appTitle: { fontSize: 24, fontWeight: '800', marginBottom: 2, letterSpacing: -0.5 },
+  appSub: { fontSize: 13, fontWeight: '500' },
+  form: { gap: 18 },
+  formTitle: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  formSub: { fontSize: 14 },
   field: { gap: 8 },
-  label: { fontSize: 14, fontWeight: '500', color: C.gray300 },
-  input: {
-    backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.2)', borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: C.white,
+  label: { fontSize: 13, fontWeight: '600' },
+  inputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderRadius: 14,
+    paddingHorizontal: 14, height: 52,
   },
-  passWrap: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.2)', borderRadius: 12, overflow: 'hidden',
-  },
-  eyeBtn: { paddingHorizontal: 12 },
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)', borderRadius: 12, padding: 12,
-  },
-  toggleTitle: { fontSize: 14, fontWeight: '500', color: C.white },
-  toggleSub: { fontSize: 12, color: C.gray400, marginTop: 2 },
-  forgotBtn: { alignSelf: 'flex-start' },
-  forgotText: { fontSize: 14, color: C.amber400 },
-  errorBox: {
-    backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.3)', borderRadius: 12, padding: 12,
-  },
-  errorText: { color: '#fca5a5', fontSize: 14, textAlign: 'center' },
+  input: { flex: 1, fontSize: 15 },
+  eyeBtn: { padding: 4 },
   primaryBtn: {
-    backgroundColor: C.amber500, borderRadius: 12, paddingVertical: 14,
+    backgroundColor: C.amber500, borderRadius: 14, height: 54,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    shadowColor: C.amber500, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 6, elevation: 6,
+    shadowColor: C.amber500, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 6,
+    marginTop: 4,
   },
-  primaryBtnText: { fontSize: 16, fontWeight: '600', color: C.gray900 },
-  btnDisabled: { opacity: 0.6 },
+  primaryBtnText: { fontSize: 16, fontWeight: '700', color: C.gray900 },
+  btnDisabled: { opacity: 0.5, shadowOpacity: 0 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  backText: { fontSize: 14, color: C.gray400 },
+  backText: { fontSize: 14 },
   tfaCard: {
-    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.2)', borderRadius: 20, padding: 20, alignItems: 'center',
+    borderWidth: 1, borderRadius: 20, padding: 24, alignItems: 'center', gap: 8,
   },
   tfaIconWrap: {
-    width: 56, height: 56, backgroundColor: 'rgba(245,158,11,0.2)',
-    borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    width: 60, height: 60, borderRadius: 30,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
-  tfaTitle: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 8 },
-  tfaDesc: { fontSize: 14, color: C.gray400, textAlign: 'center', lineHeight: 20 },
+  tfaTitle: { fontSize: 18, fontWeight: '700' },
+  tfaDesc: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   codeInput: {
-    textAlign: 'center', fontSize: 28,
+    textAlign: 'center', fontSize: 32, fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 16, color: C.white,
+    letterSpacing: 12, borderWidth: 1.5, borderRadius: 14,
+    paddingVertical: 16, paddingHorizontal: 20,
   },
-  footer: { alignItems: 'center', marginTop: 32, gap: 8 },
-  registerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  registerText: { fontSize: 14, color: C.gray400 },
-  registerLink: { fontSize: 14, color: C.amber400, fontWeight: '600' },
-  footerText: { fontSize: 13, color: C.gray400 },
-  footerVersion: { fontSize: 11, color: C.gray600 },
-  adminLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingVertical: 6 },
-  adminLinkText: { fontSize: 12, color: C.red500, fontWeight: '500' },
+  footer: { alignItems: 'center', marginTop: 24, gap: 6 },
+  registerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  registerText: { fontSize: 14 },
+  registerLink: { fontSize: 14, fontWeight: '600' },
+  footerText: { fontSize: 12 },
 });

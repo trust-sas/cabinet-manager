@@ -1,12 +1,14 @@
 import { AppColors as C } from '@/constants/theme';
 import { useAdminUsers } from '@/hooks/useAdminUsers';
 import { UserProfile } from '@/services/users.service';
+import { extractErrorMessage } from '@/lib/api';
 import {
     AlertCircle,
     CheckCircle,
     ChevronRight, Lock,
     Mail,
     Search,
+    Trash2,
     User,
     X,
     XCircle
@@ -38,7 +40,7 @@ export default function UtilisateursScreen() {
   const [selected, setSelected] = useState<UserProfile | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const { users, isLoading, error, refetch, toggleActivation } = useAdminUsers();
+  const { users, isLoading, error, refetch, toggleActivation, deleteAccount } = useAdminUsers();
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase();
@@ -63,6 +65,32 @@ export default function UtilisateursScreen() {
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const handleDelete = (u: UserProfile) => {
+    Alert.alert(
+      'Supprimer le compte',
+      `Êtes-vous sûr de vouloir supprimer définitivement le compte de ${u.nom} (${u.email}) ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            setIsUpdating(true);
+            try {
+              await deleteAccount(u.id);
+              setSelected(null);
+              Alert.alert('Compte supprimé', `Le compte de ${u.nom} a été supprimé.`);
+            } catch (e) {
+              Alert.alert('Erreur', extractErrorMessage(e) || 'Impossible de supprimer le compte.');
+            } finally {
+              setIsUpdating(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const initials = (nom: string) => {
@@ -220,30 +248,52 @@ export default function UtilisateursScreen() {
                     </View>
                   </View>
 
-                  {/* Action : désactivation uniquement */}
-                  <View style={{ marginTop: 8, paddingBottom: 20 }}>
+                  {/* Actions : Désactivation / Activation + Suppression */}
+                  <View style={{ marginTop: 8, paddingBottom: 20, gap: 10 }}>
                     {selected.actif ? (
                       <TouchableOpacity
-                        style={[s.actionBtn, s.actionBtnDanger]}
+                        style={[s.actionBtn, s.actionBtnWarning]}
                         onPress={() => handleToggleActif(selected)}
                         disabled={isUpdating}
                         activeOpacity={0.85}
                       >
                         {isUpdating ? (
-                          <ActivityIndicator color={C.red700} />
+                          <ActivityIndicator color={C.amber800} />
                         ) : (
                           <>
-                            <Lock color={C.red700} size={16} />
-                            <Text style={s.actionBtnDangerText}>Désactiver le compte</Text>
+                            <Lock color={C.amber800} size={16} />
+                            <Text style={s.actionBtnWarningText}>Désactiver le compte</Text>
                           </>
                         )}
                       </TouchableOpacity>
                     ) : (
-                      <View style={s.disabledNotice}>
-                        <XCircle color={C.gray400} size={16} />
-                        <Text style={s.disabledNoticeText}>Compte désactivé — connexion impossible</Text>
-                      </View>
+                      <TouchableOpacity
+                        style={[s.actionBtn, s.actionBtnSuccess]}
+                        onPress={() => handleToggleActif(selected)}
+                        disabled={isUpdating}
+                        activeOpacity={0.85}
+                      >
+                        {isUpdating ? (
+                          <ActivityIndicator color={C.green700} />
+                        ) : (
+                          <>
+                            <CheckCircle color={C.green700} size={16} />
+                            <Text style={s.actionBtnSuccessText}>Réactiver le compte</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
                     )}
+
+                    <TouchableOpacity
+                      style={[s.actionBtn, s.actionBtnDanger]}
+                      onPress={() => handleDelete(selected)}
+                      disabled={isUpdating}
+                      activeOpacity={0.85}
+                    >
+                      <Trash2 color={C.red700} size={16} />
+                      <Text style={s.actionBtnDangerText}>Supprimer définitivement le compte</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={s.closeBtn} onPress={() => setSelected(null)} activeOpacity={0.8}>
                       <Text style={s.closeBtnText}>Fermer</Text>
                     </TouchableOpacity>
@@ -312,6 +362,8 @@ const s = StyleSheet.create({
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 14, marginBottom: 10 },
   actionBtnDanger: { backgroundColor: C.red50, borderWidth: 1, borderColor: C.red200 },
   actionBtnDangerText: { fontSize: 15, fontWeight: '600', color: C.red700 },
+  actionBtnWarning: { backgroundColor: C.amber50, borderWidth: 1, borderColor: C.amber200 },
+  actionBtnWarningText: { fontSize: 15, fontWeight: '600', color: C.amber800 },
   actionBtnSuccess: { backgroundColor: C.green50, borderWidth: 1, borderColor: C.green200 },
   actionBtnSuccessText: { fontSize: 15, fontWeight: '600', color: C.green700 },
   closeBtn: { borderWidth: 1, borderColor: C.gray200, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },

@@ -4,15 +4,20 @@
  */
 
 import { Body, Controller, Post } from '@nestjs/common';
-import { AssistantIaService } from './assistant-ia.service';
+import { AssistantIaService, PoserQuestionDto } from './assistant-ia.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 
 @Controller('assistant-ia')
 export class AssistantIaController {
   constructor(private readonly assistantIaService: AssistantIaService) {}
 
   @Post('chat')
-  async chat(@Body() body: { prompt: string; contexteDossier?: string }) {
-    const reponse = await this.assistantIaService.poserQuestion(body.prompt, body.contexteDossier);
+  async chat(
+    @Body() body: PoserQuestionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const reponse = await this.assistantIaService.poserQuestion(body, user);
     return { reponse };
   }
 }

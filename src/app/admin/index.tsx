@@ -106,25 +106,6 @@ export default function AdminDashboard() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
 
-        {/* Alertes sécurité */}
-        {(alertesSecurite > 0 || sans2fa > 0 || comptesBloques > 0) && (
-          <View style={s.alertBanner}>
-            <AlertTriangle color={C.red500} size={18} />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={s.alertTitle}>Alertes de sécurité</Text>
-              {alertesSecurite > 0 && (
-                <Text style={s.alertItem}>• {alertesSecurite} tentative(s) de connexion suspecte(s)</Text>
-              )}
-              {sans2fa > 0 && (
-                <Text style={s.alertItem}>• {sans2fa} compte(s) actif(s) sans 2FA activé</Text>
-              )}
-              {comptesBloques > 0 && (
-                <Text style={s.alertItem}>• {comptesBloques} compte(s) avec tentatives échouées ≥ 3</Text>
-              )}
-            </View>
-          </View>
-        )}
-
         {/* KPIs */}
         <View style={s.kpiGrid}>
           <View style={[s.kpiCard, { borderLeftColor: C.green500 }]}>
@@ -141,11 +122,6 @@ export default function AdminDashboard() {
             <Activity color={C.amber500} size={22} />
             <Text style={s.kpiVal}>{logsAujourdhui}</Text>
             <Text style={s.kpiLabel}>Actions aujourd'hui</Text>
-          </View>
-          <View style={[s.kpiCard, { borderLeftColor: C.red500 }]}>
-            <AlertTriangle color={C.red500} size={22} />
-            <Text style={s.kpiVal}>{alertesSecurite}</Text>
-            <Text style={s.kpiLabel}>Alertes sécurité</Text>
           </View>
         </View>
 

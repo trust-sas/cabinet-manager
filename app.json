@@ -10,11 +10,26 @@
     "userInterfaceStyle": "automatic",
     "sdkVersion": "54.0.0",
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#111827"
       },
-      "package": "com.momosm.cabinet_manager"
+      "package": "com.momosm.cabinet_manager",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "web": {
       "bundler": "metro",
@@ -39,7 +54,9 @@
             "extraProguardRules": "-keep class expo.modules.securestore.** { *; }\n-keep class com.facebook.jni.** { *; }"
           }
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true
@@ -55,7 +72,6 @@
     },
     "updates": {
       "url": "https://u.expo.dev/7927fe3a-6021-401d-9133-81d304b1e24c"
-    },
-    "ios": {}
+    }
   }
 }

@@ -4,7 +4,7 @@
  */
 
 import {
-  Controller, Get, Param, ParseIntPipe, Patch, Query,
+  Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Query,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -44,5 +44,14 @@ export class NotificationsController {
   @Patch('lire-tout')
   async marquerToutCommeLu(@CurrentUser() user: AuthenticatedUser) {
     return this.notificationsService.marquerToutCommeLu(user);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async supprimer(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.notificationsService.supprimer(id, user);
   }
 }

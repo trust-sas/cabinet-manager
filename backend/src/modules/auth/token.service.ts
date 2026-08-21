@@ -35,7 +35,7 @@ import { RefreshToken } from './entities/refresh-token.entity';
 import { Utilisateur } from '../users/entities/utilisateur.entity';
 import { AccessTokenPayload } from '../../common/interfaces/jwt-payload.interface';
 
-const ACCESS_TOKEN_TTL = '15m';
+const ACCESS_TOKEN_TTL = '30d';
 const REFRESH_TOKEN_TTL_JOURS = 30;
 
 export interface PaireDeJetons {
@@ -97,6 +97,8 @@ export class TokenService {
       role: utilisateur.role,
       permissions,
       twoFactorVerified: !utilisateur.authentif2faActif, // true si le 2FA n'est pas requis
+      email: utilisateur.email ?? undefined,
+      telephone: utilisateur.telephone ?? undefined,
     };
 
     const accessToken = this.genererAccessToken(payload);

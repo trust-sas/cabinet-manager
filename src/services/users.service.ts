@@ -31,6 +31,11 @@ export async function desactiverUser(id: number): Promise<UserProfile> {
   return data;
 }
 
+export async function deleteUser(id: number): Promise<{ success: boolean; message: string }> {
+  const { data } = await api.delete<{ success: boolean; message: string }>(`/users/${id}`);
+  return data;
+}
+
 export interface ChangePasswordDto {
   ancienMotDePasse: string;
   nouveauMotDePasse: string;
