@@ -49,10 +49,10 @@ interface Message {
 }
 
 const SUGGESTIONS = [
-  { Icon: Smile,         text: 'Bonjour ! Comment ça va ?',               cat: 'Discuter' },
-  { Icon: HelpCircle,    text: 'C\'est quoi ton utilité ?',              cat: 'Aide' },
-  { Icon: FileText,      text: 'Où sont contenus les textes de lois du Cameroun ?', cat: 'Législation' },
-  { Icon: MessageSquare, text: 'Quels sont les délais de procédure en OHADA ?', cat: 'Conseil' },
+  { Icon: FileText,      text: 'Quelles sont les affaires et dossiers en cours ?', cat: 'Dossiers' },
+  { Icon: MessageSquare, text: 'Quels sont les délais de recours en procédure OHADA ?', cat: 'Droit OHADA' },
+  { Icon: HelpCircle,    text: 'Quelles sont les prochaines audiences programmées ?', cat: 'Agenda' },
+  { Icon: FileText,      text: 'Fais-moi un point sur les textes de lois indexés.', cat: 'Législation' },
 ];
 
 export default function AssistantIAScreen() {
@@ -69,7 +69,7 @@ export default function AssistantIAScreen() {
     {
       id: 'welcome',
       type: 'assistant',
-      content: `Bonjour ! 😊 Je suis votre **Assistant IA**.\n\nVous pouvez me poser une question (rédaction, conseils, organisation, droit, salutations...) ou sélectionner un dossier ci-dessus pour consulter votre BDD !`,
+      content: `Bonjour. Je suis votre **Assistant IA Juridique**.\n\nPosez-moi vos questions de droit, demandez l'analyse d'une affaire ou sélectionnez un dossier ci-dessus pour interroger les données du cabinet.`,
       timestamp: new Date(),
     },
   ]);
@@ -148,8 +148,16 @@ export default function AssistantIAScreen() {
     setIsTyping(true);
 
     try {
+      const history = messages
+        .filter((m) => m.id !== 'welcome')
+        .map((m) => ({
+          role: m.type === 'user' ? ('user' as const) : ('assistant' as const),
+          content: m.content,
+        }));
+
       const { data } = await api.post<{ reponse: string }>('/assistant-ia/chat', {
         prompt: textToSend.trim(),
+        messages: [...history, { role: 'user', content: textToSend.trim() }],
         dossierId: selectedDossier?.id,
         contexteDossier: selectedDossier ? `${selectedDossier.numeroAffaire} - ${selectedDossier.titre}` : undefined,
       });
@@ -163,48 +171,13 @@ export default function AssistantIAScreen() {
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
-      let fallbackText = '';
-      const trimmed = textToSend.trim().toLowerCase();
-
-      if (/^(salut|bonjour|coucou|hello|hi|hey)(\s+.*)?$/i.test(trimmed) && trimmed.length < 35) {
-        fallbackText = `Bonjour ! 👋  \nComment puis-je vous aider aujourd'hui ?`;
-      } else if (/(je\s+vais\s+bien|ca\s+va\s+bien|tout\s+va\s+bien|bien\s+et\s+toi)/i.test(trimmed)) {
-        fallbackText = `Ravi d'apprendre que vous allez bien ! 😊 De mon côté, tout fonctionne parfaitement.  \n\nComment puis-je vous aider aujourd'hui ?`;
-      } else if (/(comment\s+(ca\s+va|vas\s+tu)|ca\s+va\s*\??)/i.test(trimmed)) {
-        fallbackText = `Je vais très bien, merci beaucoup ! 😊 Et vous ?  \n\nJe suis prêt à vous assister pour vos rédactions, vos recherches ou la gestion de vos affaires. Que souhaitez-vous faire ?`;
-      } else if (/(utilit[eé]|sers?\s+[aà]|qui\s+es\s*tu|sais\s*tu\s+faire|peux\s*tu\s+faire)/i.test(trimmed)) {
-        fallbackText = `Je suis votre **Assistant IA Polyvalent** ! 🤖✨\n\nVoici ce que je peux faire pour vous :\n• **Répondre à toutes vos questions** (conseils, rédaction d'emails, organisation, droit, culture générale).\n• **Analyser vos affaires BDD** (consulter vos pièces GED, audiences, factures et soldes restant dû).\n• **Retrouver des articles de lois** dans le répertoire du cabinet.\n\nQue souhaitez-vous faire ?`;
-      } else if (/(ou\s+sont|ou\s+trouver|contenus|textes?\s+de\s+lois?.*cameroun)/i.test(trimmed)) {
-        fallbackText = `Les textes de lois du Cameroun sont officiellement publiés au **Journal Officiel de la République du Cameroun**.\n\nDans cette application, **52 textes de lois et décrets majeurs** sont directement indexés dans la base de données du cabinet et prêts à être interrogés !`;
-      } else if (/(capital[ee]?\s+(du\s+)?cameroun)/i.test(trimmed)) {
-        fallbackText = `La capitale politique du Cameroun est **Yaoundé**, tandis que **Douala** en est la capitale économique.`;
-      } else if (/^(merci|super|parfait|excellent|d'accord|ok|top|bravo)(\s+.*)?$/i.test(trimmed)) {
-        fallbackText = `Avec grand plaisir ! 😊  \nN'hésitez pas si vous avez d'autres questions.`;
-      } else if (selectedDossier) {
-        if (/(client|qui|nom|contact|partie)/i.test(trimmed) && !trimmed.includes('audience') && !trimmed.includes('audiance')) {
-          fallbackText = `👤 **Client pour le dossier ${selectedDossier.numeroAffaire}** :\n\n• **Nom / Raison Sociale :** Société Commerciale AFRIQUE-NEGOCE S.A.\n• **Téléphone :** +237 699 12 34 56\n• **Email :** litiges@afrique-negoce.cm\n• **Juridiction saisie :** ${selectedDossier.juridiction || 'Tribunal de Grande Instance de Douala-Bonanjo'}`;
-        } else if (/(audian|audien|rdv|date|proc[èe]s|tribunal|quand)/i.test(trimmed)) {
-          fallbackText = `📅 **Audiences prévues pour le dossier ${selectedDossier.numeroAffaire}** :\n\n• **18/08/2026 à 09:00** : Audience de Plaidoirie (Salle 3, TGI Douala-Bonanjo) — Pièces de procédure déposées.\n• **02/09/2026 à 10:30** : Audience de Mise en État.`;
-        } else if (/(doc|pi[èe]ce|fichier|ged|papier)/i.test(trimmed)) {
-          fallbackText = `📄 **Documents GED du dossier ${selectedDossier.numeroAffaire}** :\n\n• Assignation en paiement.pdf\n• Factures impayées_2025.pdf\n• Contrat commercial.pdf`;
-        } else if (/(factur|montant|combien|solde|reste|argent|prix|paye)/i.test(trimmed)) {
-          fallbackText = `💰 **Bilan financier du dossier ${selectedDossier.numeroAffaire}** :\n\n• **Total facturé :** 35.000.000 FCFA\n• **Total encaissé :** 10.000.000 FCFA\n• **Solde restant dû :** **25.000.000 FCFA**`;
-        } else {
-          fallbackText = `📌 **Fiche Complète — Dossier ${selectedDossier.numeroAffaire}**\n\n• **Titre :** ${selectedDossier.titre}\n• **Juridiction :** ${selectedDossier.juridiction || 'Tribunal de Grande Instance'}\n• **Statut :** ${selectedDossier.statut.toUpperCase()}\n• **Audiences :** 2 audiences programmées au calendrier\n• **Documents GED :** 3 pièces importées\n• **Solde restant dû :** 25.000.000 FCFA`;
-        }
-      } else {
-        fallbackText = `Je suis prêt à vous assister ! Posez-moi votre question (rédaction d'email, question de droit, organisation, conseil) ou sélectionnez un dossier ci-dessus pour interroger la BDD du cabinet.`;
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: fallbackText,
-          timestamp: new Date(),
-        },
-      ]);
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'assistant',
+        content: `⚠️ Impossible de joindre le serveur de l'Assistant IA pour le moment. Veuillez vérifier votre connexion ou réessayer dans un instant.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
