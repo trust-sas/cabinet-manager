@@ -65,6 +65,33 @@ async function runMigration() {
 
     console.log('\n[3/5] Extraction et création du schéma (DDL)...');
 
+    // 0. Extensions
+    await remoteClient.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`).catch(() => {});
+    await remoteClient.query(`CREATE EXTENSION IF NOT EXISTS "unaccent";`).catch(() => {});
+
+    // 1. Extraire et créer tous les types ENUM personnalisés
+    console.log('  ⚙️ Création des types ENUM personnalisés...');
+    const enumsRes = await localClient.query(`
+      SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder) as enum_values
+      FROM pg_type t
+      JOIN pg_enum e ON t.oid = e.enumtypid
+      JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public'
+      GROUP BY t.typname;
+    `);
+
+    for (const enumRow of enumsRes.rows) {
+      const rawVals = Array.isArray(enumRow.enum_values)
+        ? enumRow.enum_values
+        : String(enumRow.enum_values || '').replace(/^\{|\}$/g, '').split(',');
+      const vals = rawVals.map(v => `'${v.trim().replace(/'/g, "''")}'`).join(', ');
+      await remoteClient.query(`
+        DO $$ BEGIN
+          CREATE TYPE ${enumRow.typname} AS ENUM (${vals});
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `);
+    }
+
     // Récupérer la liste de toutes les tables existantes locales
     const tablesRes = await localClient.query(`
       SELECT table_name 
@@ -93,7 +120,7 @@ async function runMigration() {
       const colDefs = colRes.rows.map(col => {
         let type = col.data_type;
         if (col.data_type === 'USER-DEFINED') {
-          type = 'TEXT';
+          type = col.udt_name;
         } else if (col.data_type === 'character varying') {
           type = col.character_maximum_length ? `VARCHAR(${col.character_maximum_length})` : 'VARCHAR(255)';
         } else if (col.data_type === 'ARRAY') {
