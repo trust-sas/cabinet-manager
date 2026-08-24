@@ -1,7 +1,7 @@
 /**
  * src/app/affaire/[id].tsx
  * Écran de détail d'un dossier / affaire juridique.
- * 4 onglets : Résumé | Audiences | Documents | Finances
+ * 3 onglets : Résumé | Audiences | Documents (+ Inviter pour le créateur du dossier)
  * Inclus : Édition du dossier, gestion des audiences, upload (PDF, Word, Excel, Photo, Scan),
  * APERÇU INTERACTIF RÉEL DE DOCUMENT (Lecteur PDF, Word, Tableur Excel, Image) ET TÉLÉCHARGEMENT.
  */
@@ -10,13 +10,11 @@ import { AppColors as C } from '@/constants/theme';
 import { useAudiences } from '@/hooks/useAudiences';
 import { useDossier } from '@/hooks/useDossiers';
 import { useDocuments } from '@/hooks/useDocuments';
-import { useFactures } from '@/hooks/useFactures';
 import { cloturerDossier, deleteDossier, DossierStatut, updateDossier } from '@/services/dossiers.service';
 import {
   Document as DocItem, DocumentConfidentialite, getDocumentDownloadUrl,
   getDocumentAccessStatus, demanderAccesDocument,
 } from '@/services/documents.service';
-import { Facture } from '@/services/facturation.service';
 import { envoyerInvitationDossierApi, demanderPermissionConsultation, hasConsultationPermission } from '@/services/dossierInvitations.service';
 import { useAuth } from '@/hooks/useAuth';
 import { apercuAvecAppCompatible, getMimeType, telechargerDansTelephone } from '@/lib/fileViewerManager';
@@ -27,7 +25,7 @@ import { DateTimePickerModal } from '@/components/DateTimePickerModal';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   AlertCircle, ArrowLeft, Calendar, Camera, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  DollarSign, Download, ExternalLink, Eye, FileSpreadsheet, FileText, Globe,
+  Download, ExternalLink, Eye, FileSpreadsheet, FileText, Globe,
   Image as ImageIcon, Lock, Paperclip, Pencil, Phone, Plus, RefreshCw, Scan, Share2,
   ShieldAlert, Trash2, Upload, X, UserPlus, Send, Key, Mail,
 } from 'lucide-react-native';
@@ -38,12 +36,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type Tab = 'resume' | 'audiences' | 'documents' | 'finances' | 'inviter';
+type Tab = 'resume' | 'audiences' | 'documents' | 'inviter';
 const TABS: { id: Tab; label: string; Icon: any }[] = [
   { id: 'resume',    label: 'Résumé',    Icon: FileText },
   { id: 'audiences', label: 'Agenda',    Icon: Calendar },
   { id: 'documents', label: 'Documents', Icon: FileText },
-  { id: 'finances',  label: 'Finances',  Icon: DollarSign },
   { id: 'inviter',   label: 'Inviter',   Icon: UserPlus },
 ];
 
@@ -136,82 +133,10 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
     loading: false,
   });
 
-  const { dossier, rentabilite, isLoading, error, refetch } = useDossier(dossierId);
+  const { dossier, isLoading, error, refetch } = useDossier(dossierId);
   const { audiences, refetch: refetchAud, create: createAud } = useAudiences({ dossierId, lazy: false });
   const { documents, refetch: refetchDoc, create: createDoc, remove: removeDoc } = useDocuments({ dossierId, lazy: false });
-  const { factures, totalFacture, totalEncaisse, totalImpaye, refetch: refetchFactures, update: updateFactureHook, supprimer: deleteFactureHook } = useFactures({ dossierId });
 
-  // Modal Édition Facture
-  const [selectedFacture, setSelectedFacture] = useState<Facture | null>(null);
-  const [showEditFactureModal, setShowEditFactureModal] = useState(false);
-  const [editFactMontantHt, setEditFactMontantHt] = useState('');
-  const [editFactTva, setEditFactTva] = useState('19.25');
-  const [editFactEcheance, setEditFactEcheance] = useState('');
-  const [editFactDesc, setEditFactDesc] = useState('');
-  const [editFactStatut, setEditFactStatut] = useState<'payee' | 'envoyee'>('envoyee');
-  const [savingFacture, setSavingFacture] = useState(false);
-
-  const handleOpenEditFacture = (f: Facture) => {
-    setSelectedFacture(f);
-    setEditFactMontantHt(String(f.montantHt));
-    setEditFactTva(String(f.tauxTva));
-    setEditFactEcheance(f.dateEcheance ? f.dateEcheance.slice(0, 10) : '');
-    setEditFactDesc(f.description || '');
-    setEditFactStatut(f.statut === 'payee' ? 'payee' : 'envoyee');
-    setShowEditFactureModal(true);
-  };
-
-  const handleSaveEditFacture = async () => {
-    if (!selectedFacture) return;
-    const ht = Number(editFactMontantHt);
-    if (isNaN(ht) || ht <= 0) {
-      Alert.alert('Erreur', 'Veuillez saisir un montant HT valide.');
-      return;
-    }
-    setSavingFacture(true);
-    try {
-      await updateFactureHook(selectedFacture.id, {
-        montantHt: ht,
-        tauxTva: Number(editFactTva) || 19.25,
-        dateEcheance: editFactEcheance || undefined,
-        description: editFactDesc.trim() || undefined,
-        statut: editFactStatut,
-      });
-      setShowEditFactureModal(false);
-      setSelectedFacture(null);
-      await refetchFactures();
-      Alert.alert('✅ Succès', 'Facture mise à jour avec succès.');
-    } catch (e: any) {
-      Alert.alert('Erreur', extractErrorMessage(e));
-    } finally {
-      setSavingFacture(false);
-    }
-  };
-
-  const handleDeleteFacture = (f: Facture) => {
-    Alert.alert(
-      'Supprimer la facture',
-      `Voulez-vous supprimer définitivement la facture "${f.numeroFacture}" ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteFactureHook(f.id);
-              setShowEditFactureModal(false);
-              setSelectedFacture(null);
-              await refetchFactures();
-              Alert.alert('✅ Succès', 'Facture supprimée.');
-            } catch (e: any) {
-              Alert.alert('Erreur', extractErrorMessage(e));
-            }
-          },
-        },
-      ],
-    );
-  };
 
   const handleDeleteDocument = (doc: DocItem) => {
     Alert.alert(
@@ -306,7 +231,6 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
   }
 
   const statCol = STATUT_COLORS[dossier.statut] ?? { bg: C.gray100, text: C.gray700 };
-  const pct = totalFacture > 0 ? Math.round((totalEncaisse / totalFacture) * 100) : 0;
 
   // ── Handlers Édition Dossier ─────────────────────────────────────────────
 
@@ -662,7 +586,11 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsRow}>
-          {TABS.map(tab => {
+          {TABS.filter(tab => {
+            // L'onglet "Inviter" n'est visible que par le créateur du dossier
+            if (tab.id === 'inviter') return dossier.avocatResponsableId === user?.id;
+            return true;
+          }).map(tab => {
             const active = activeTab === tab.id;
             return (
               <TouchableOpacity key={tab.id} onPress={() => setActiveTab(tab.id)}
@@ -899,82 +827,6 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
           </>
         )}
 
-        {/* ── FINANCES ── */}
-        {activeTab === 'finances' && (
-          <>
-            <View style={s.card}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={s.cardTitle}>Résumé financier</Text>
-                <TouchableOpacity
-                  style={s.addFactureBtn}
-                  onPress={() => router.push('/(tabs)/facturation')}
-                  activeOpacity={0.8}
-                >
-                  <Plus color={C.gray900} size={14} />
-                  <Text style={s.addFactureBtnText}>Créer une facture</Text>
-                </TouchableOpacity>
-              </View>
-              {[
-                { label: 'Total facturé',     val: fmtM(totalFacture),  color: C.gray900 },
-                { label: 'Total encaissé',    val: fmtM(totalEncaisse), color: C.green600 },
-                { label: 'Reste à percevoir', val: fmtM(totalImpaye),   color: C.orange600 },
-              ].map(({ label, val, color }) => (
-                <View key={label} style={s.amtRow}>
-                  <Text style={s.amtLabel}>{label}</Text>
-                  <Text style={[s.amtVal, { color }]}>{val}</Text>
-                </View>
-              ))}
-              <View style={s.progressBg}>
-                <View style={[s.progressFill, {
-                  width: `${pct}%` as any,
-                  backgroundColor: pct >= 80 ? C.green500 : pct >= 50 ? C.amber500 : C.red500,
-                }]} />
-              </View>
-              <Text style={{ textAlign: 'right', fontSize: 12, color: C.gray500, marginTop: 4 }}>{pct}% encaissé</Text>
-            </View>
-            {factures.length === 0 ? (
-              <View style={s.empty}>
-                <DollarSign color={C.gray400} size={40} />
-                <Text style={s.emptyText}>Aucune facture pour ce dossier</Text>
-                <TouchableOpacity
-                  style={[s.addFactureBtn, { marginTop: 10, paddingHorizontal: 16, paddingVertical: 10 }]}
-                  onPress={() => router.push('/(tabs)/facturation')}
-                  activeOpacity={0.8}
-                >
-                  <Plus color={C.gray900} size={16} />
-                  <Text style={[s.addFactureBtnText, { fontSize: 13 }]}>Créer la première facture</Text>
-                </TouchableOpacity>
-              </View>
-            ) : factures.map(f => (
-              <TouchableOpacity
-                key={String(f.id)}
-                style={s.card}
-                onPress={() => handleOpenEditFacture(f)}
-                activeOpacity={0.85}
-              >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <Text style={s.factNum}>{f.numeroFacture}</Text>
-                  <View style={[s.statusBadge,
-                    f.statut === 'payee'     ? { backgroundColor: C.green100 } :
-                    f.statut === 'en_retard' ? { backgroundColor: C.red100 } :
-                                               { backgroundColor: C.blue100 },
-                  ]}>
-                    <Text style={[s.statusText,
-                      f.statut === 'payee'     ? { color: C.green700 } :
-                      f.statut === 'en_retard' ? { color: C.red700 } :
-                                                 { color: C.blue700 },
-                    ]}>
-                      {f.statut === 'payee' ? 'Encaissée' : f.statut === 'en_retard' ? 'En retard' : f.statut === 'partielle' ? 'Partielle' : 'Impayée'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={s.factMeta}>TTC : <Text style={{ fontWeight: '700', color: C.gray900 }}>{fmtM(Number(f.montantTtc))}</Text></Text>
-                <Text style={s.factMeta}>Encaissé : <Text style={{ fontWeight: '700', color: C.green600 }}>{fmtM(Number(f.montantEncaisse))}</Text></Text>
-                <Text style={{ fontSize: 11, color: C.amber600, marginTop: 4, fontWeight: '600' }}>Appuyer pour modifier ou changer le statut</Text>
-              </TouchableOpacity>
-            ))}
-          </>
-        )}
 
         {/* ── ONGLET INVITER UNE PERSONNE ── */}
         {activeTab === 'inviter' && (
@@ -1705,129 +1557,6 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
         </View>
       </Modal>
 
-      {/* ── MODAL ÉDITION FACTURE & CHANGEMENT STATUT ── */}
-      {selectedFacture && (
-        <Modal
-          visible={showEditFactureModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowEditFactureModal(false)}
-        >
-          <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowEditFactureModal(false)}>
-            <KeyboardAvoidingView
-              style={{ width: '100%', maxHeight: '90%' }}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            >
-              <TouchableOpacity style={s.sheet} activeOpacity={1} onPress={() => {}}>
-                <View style={s.handle} />
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <Text style={s.sheetTitle}>Modifier {selectedFacture.numeroFacture}</Text>
-                  <TouchableOpacity style={s.closeBtn} onPress={() => setShowEditFactureModal(false)}>
-                    <X color={C.gray600} size={18} />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled">
-                  {/* Sélecteur de Statut : Impayée vs Encaissée */}
-                  <Text style={s.fieldLabel}>Statut de la facture *</Text>
-                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-                    <TouchableOpacity
-                      style={[
-                        s.chipBtn,
-                        { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-                        editFactStatut === 'envoyee' && { backgroundColor: C.blue50, borderColor: C.blue600, borderWidth: 1.5 },
-                      ]}
-                      onPress={() => setEditFactStatut('envoyee')}
-                      activeOpacity={0.8}
-                    >
-                      <Clock color={editFactStatut === 'envoyee' ? C.blue600 : C.gray500} size={16} />
-                      <Text style={[s.chipText, editFactStatut === 'envoyee' && { color: C.blue700, fontWeight: '700' }]}>
-                        Impayée
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        s.chipBtn,
-                        { flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-                        editFactStatut === 'payee' && { backgroundColor: C.green50, borderColor: C.green600, borderWidth: 1.5 },
-                      ]}
-                      onPress={() => setEditFactStatut('payee')}
-                      activeOpacity={0.8}
-                    >
-                      <CheckCircle2 color={editFactStatut === 'payee' ? C.green600 : C.gray500} size={16} />
-                      <Text style={[s.chipText, editFactStatut === 'payee' && { color: C.green700, fontWeight: '700' }]}>
-                        Encaissée
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={s.fieldLabel}>Montant Hors Taxes (FCFA) *</Text>
-                  <TextInput
-                    style={s.fieldInput}
-                    value={editFactMontantHt}
-                    onChangeText={setEditFactMontantHt}
-                    keyboardType="numeric"
-                    placeholder="ex: 500000"
-                    placeholderTextColor={C.gray400}
-                  />
-
-                  <Text style={s.fieldLabel}>Taux TVA (%)</Text>
-                  <TextInput
-                    style={s.fieldInput}
-                    value={editFactTva}
-                    onChangeText={setEditFactTva}
-                    keyboardType="numeric"
-                    placeholder="19.25"
-                    placeholderTextColor={C.gray400}
-                  />
-
-                  <Text style={s.fieldLabel}>Date d'échéance (AAAA-MM-JJ)</Text>
-                  <TextInput
-                    style={s.fieldInput}
-                    value={editFactEcheance}
-                    onChangeText={setEditFactEcheance}
-                    placeholder="AAAA-MM-JJ"
-                    placeholderTextColor={C.gray400}
-                  />
-
-                  <Text style={s.fieldLabel}>Description / Prestations</Text>
-                  <TextInput
-                    style={[s.fieldInput, { height: 75, textAlignVertical: 'top' }]}
-                    value={editFactDesc}
-                    onChangeText={setEditFactDesc}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Détail des honoraires et diligences..."
-                    placeholderTextColor={C.gray400}
-                  />
-
-                  <TouchableOpacity
-                    style={[s.saveBtn, savingFacture && { opacity: 0.6 }, { marginTop: 10 }]}
-                    onPress={handleSaveEditFacture}
-                    disabled={savingFacture}
-                    activeOpacity={0.85}
-                  >
-                    {savingFacture ? <ActivityIndicator color={C.gray900} /> : <Text style={s.saveBtnText}>Enregistrer les modifications</Text>}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[s.cancelBtn, { backgroundColor: '#ef444415', borderColor: '#ef444440', borderWidth: 1, marginTop: 8 }]}
-                    onPress={() => handleDeleteFacture(selectedFacture)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[s.cancelBtnText, { color: '#ef4444' }]}>Supprimer la facture</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={s.cancelBtn} onPress={() => setShowEditFactureModal(false)} activeOpacity={0.8}>
-                    <Text style={s.cancelBtnText}>Fermer</Text>
-                  </TouchableOpacity>
-                </ScrollView>
-              </TouchableOpacity>
-            </KeyboardAvoidingView>
-          </TouchableOpacity>
-        </Modal>
-      )}
 
       {/* Pop-up Calendrier & Choix d'heure (Dates passées bloquées) */}
       <DateTimePickerModal
