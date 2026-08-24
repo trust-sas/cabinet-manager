@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -95,6 +96,16 @@ export class InvitationsService {
     if (!dossier) {
       throw new NotFoundException({
         error: { code: 'DOSSIER_NOT_FOUND', message: 'Dossier introuvable.', status: 404 },
+      });
+    }
+
+    if (Number(dossier.avocatResponsableId) !== Number(inviteurUser.id)) {
+      throw new ForbiddenException({
+        error: {
+          code: 'FORBIDDEN',
+          message: "Seul le créateur du dossier est autorisé à inviter d'autres membres.",
+          status: 403,
+        },
       });
     }
 
