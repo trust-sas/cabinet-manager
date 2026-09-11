@@ -29,12 +29,12 @@ import {
   AlertTriangle, Archive, Brain, Calendar, Camera, Check, ChevronDown, Download,
   ExternalLink, Eye, File as FileIcon, FileText, FilmIcon, FolderOpen,
   Image as ImageIcon, Music, Paperclip, Plus, Scale, Scan, Search, Send, Shield, ShieldAlert,
-  ShieldCheck, Sparkles, Trash2, Upload, X,
+  ShieldCheck, Sparkles, Trash2, Upload, X, ArrowDownAZ, CalendarDays,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform,
-  RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput,
+  RefreshControl, ScrollView, SectionList, StatusBar, StyleSheet, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -77,6 +77,61 @@ const FILTRES_GED: Array<{ id: Confidentialite | 'all'; label: string }> = [
   { id: 'secret',      label: 'Secret' },
 ];
 
+// ── Helpers de groupage pour tri par date (style Windows Explorer) ─────────────
+type DateGroup = 'Aujourd\'hui' | 'Cette semaine' | 'Ce mois-ci' | 'Les 3 derniers mois' | 'Il y a longtemps';
+
+function getDateGroup(isoDate: string): DateGroup {
+  const now = new Date();
+  const date = new Date(isoDate);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const docDay    = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  const diffDays = Math.floor((todayStart.getTime() - docDay.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0)  return 'Aujourd\'hui';
+  if (diffDays <= 7)  return 'Cette semaine';
+  if (diffDays <= 30) return 'Ce mois-ci';
+  if (diffDays <= 90) return 'Les 3 derniers mois';
+  return 'Il y a longtemps';
+}
+
+const DATE_GROUP_ORDER: DateGroup[] = [
+  'Aujourd\'hui',
+  'Cette semaine',
+  'Ce mois-ci',
+  'Les 3 derniers mois',
+  'Il y a longtemps',
+];
+
+function groupDocsByDate<T>(items: T[], getDate: (item: T) => string): Array<{ title: string; data: T[] }> {
+  // Tri initial chronologique décroissant (le plus récent d'abord)
+  const sorted = [...items].sort((a, b) => new Date(getDate(b)).getTime() - new Date(getDate(a)).getTime());
+  const map = new Map<DateGroup, T[]>();
+  for (const item of sorted) {
+    const group = getDateGroup(getDate(item));
+    if (!map.has(group)) map.set(group, []);
+    map.get(group)!.push(item);
+  }
+  return DATE_GROUP_ORDER
+    .filter(g => map.has(g))
+    .map(g => ({ title: g, data: map.get(g)! }));
+}
+
+function groupDocsByAlpha<T>(items: T[], getName: (item: T) => string): Array<{ title: string; data: T[] }> {
+  const sorted = [...items].sort((a, b) => getName(a).localeCompare(getName(b), 'fr', { sensitivity: 'base' }));
+  const map = new Map<string, T[]>();
+  for (const item of sorted) {
+    const raw = getName(item).trim();
+    const firstChar = raw.length > 0 ? raw.charAt(0).toUpperCase() : '#';
+    const letter = /^[A-Z]$/.test(firstChar) ? firstChar : '#';
+    if (!map.has(letter)) map.set(letter, []);
+    map.get(letter)!.push(item);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'fr'))
+    .map(([title, data]) => ({ title, data }));
+}
+
 // ── Types IA ──────────────────────────────────────────────────────────────────
 interface Message {
   id: string;
@@ -106,6 +161,7 @@ export default function DocumentsScreen() {
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [previewDoc,    setPreviewDoc]    = useState<Document | null>(null);
   const [refreshing,    setRefreshing]    = useState(false);
+  const [sortMode,      setSortMode]      = useState<'date' | 'alpha'>('date');
 
   // Modal Demande de Permission pour Document Secret
   const [secretDocModal, setSecretDocModal] = useState<{
@@ -124,6 +180,27 @@ export default function DocumentsScreen() {
     confidentialite: activeFilter !== 'all' ? activeFilter : undefined,
     search: searchQuery.length >= 2 ? searchQuery : undefined,
   });
+
+  const filteredDocs = useMemo(() => {
+    return documents.filter(doc => {
+      const isPublic = doc.confidentialite === 'public';
+      const hasAccess = !doc.dossierId || hasDossierAccess(doc.dossierId);
+      if (!isPublic && !hasAccess) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!doc.nom.toLowerCase().includes(q) && !(doc.description || '').toLowerCase().includes(q)) return false;
+      }
+      if (activeFilter !== 'all' && doc.confidentialite !== activeFilter) return false;
+      return true;
+    });
+  }, [documents, searchQuery, activeFilter]);
+
+  const docSections = useMemo(() => {
+    if (sortMode === 'alpha') {
+      return groupDocsByAlpha(filteredDocs, d => d.nom);
+    }
+    return groupDocsByDate(filteredDocs, d => d.createdAt);
+  }, [filteredDocs, sortMode]);
 
   // ── States Import Document (Drive, Photo, Scan, Dossier) ───────────────────
   const [showUploadModal,      setShowUploadModal]      = useState(false);
@@ -518,22 +595,64 @@ export default function DocumentsScreen() {
             })}
           </ScrollView>
 
-          {/* Liste Documents */}
-          <FlatList
-            data={documents.filter(doc => {
-              const isPublic = doc.confidentialite === 'public';
-              const hasAccess = !doc.dossierId || hasDossierAccess(doc.dossierId);
-              if (!isPublic && !hasAccess) return false;
-              if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                if (!doc.nom.toLowerCase().includes(q) && !(doc.description || '').toLowerCase().includes(q)) return false;
-              }
-              if (activeFilter !== 'all' && doc.confidentialite !== activeFilter) return false;
-              return true;
-            })}
+          {/* Barre de Tri (Date vs A-Z) */}
+          <View style={[s.sortBarRow, { backgroundColor: K.surface, borderBottomColor: K.border }]}>
+            <Text style={[s.sortLabel, { color: K.textMuted }]}>Trier par :</Text>
+            <View style={s.sortButtonsRow}>
+              <TouchableOpacity
+                style={[s.sortBtn, { backgroundColor: K.bgTertiary }, sortMode === 'date' && s.sortBtnActive]}
+                onPress={() => setSortMode('date')}
+                activeOpacity={0.8}
+              >
+                <CalendarDays size={13} color={sortMode === 'date' ? (isDark ? C.gray900 : '#ffffff') : K.textSecondary} />
+                <Text style={[s.sortBtnText, { color: K.textSecondary }, sortMode === 'date' && s.sortBtnTextActive]}>
+                  Date
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.sortBtn, { backgroundColor: K.bgTertiary }, sortMode === 'alpha' && s.sortBtnActive]}
+                onPress={() => setSortMode('alpha')}
+                activeOpacity={0.8}
+              >
+                <ArrowDownAZ size={13} color={sortMode === 'alpha' ? (isDark ? C.gray900 : '#ffffff') : K.textSecondary} />
+                <Text style={[s.sortBtnText, { color: K.textSecondary }, sortMode === 'alpha' && s.sortBtnTextActive]}>
+                  A–Z
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={[s.sortTotalText, { color: K.textMuted }]}>
+              {filteredDocs.length} doc{filteredDocs.length > 1 ? 's' : ''}
+            </Text>
+          </View>
+
+          {/* Liste Documents Groupée (Style Windows Explorer / A-Z) */}
+          <SectionList
+            sections={docSections}
             keyExtractor={item => String(item.id)}
             contentContainerStyle={s.listContent}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.amber500} />}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section: { title, data } }) => (
+              <View style={[s.sectionHeaderWrap, { backgroundColor: K.bg }]}>
+                <View style={s.sectionHeaderLeft}>
+                  {sortMode === 'date' ? (
+                    <CalendarDays color={K.primary} size={14} />
+                  ) : (
+                    <View style={[s.letterBadge, { backgroundColor: K.primaryLight }]}>
+                      <Text style={[s.letterBadgeText, { color: K.primary }]}>{title}</Text>
+                    </View>
+                  )}
+                  <Text style={[s.sectionHeaderTitle, { color: K.text }]}>
+                    {sortMode === 'date' ? title : `Lettre ${title}`}
+                  </Text>
+                  <Text style={[s.sectionHeaderCount, { color: K.textMuted }]}>
+                    ({data.length})
+                  </Text>
+                </View>
+                <View style={[s.sectionHeaderLine, { backgroundColor: K.border }]} />
+              </View>
+            )}
             ListEmptyComponent={
               isLoading ? (
                 <View style={s.center}><ActivityIndicator color={K.primary} size="large" /></View>
@@ -962,6 +1081,22 @@ const s = StyleSheet.create({
   filterChipActive: { backgroundColor: C.amber500 },
   filterChipText: { fontSize: 11, color: C.gray600, fontWeight: '500' },
   filterChipTextActive: { color: C.gray900, fontWeight: '700' },
+  sortBarRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1 },
+  sortLabel: { fontSize: 11, fontWeight: '600' },
+  sortButtonsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  sortBtnActive: { backgroundColor: C.amber500 },
+  sortBtnText: { fontSize: 11, fontWeight: '600' },
+  sortBtnTextActive: { color: C.gray900, fontWeight: '800' },
+  sortTotalText: { fontSize: 11, fontWeight: '500' },
+  sectionHeaderWrap: { paddingTop: 14, paddingBottom: 6 },
+  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  sectionHeaderBadge: { width: 22, height: 22, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  letterBadge: { width: 22, height: 22, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  letterBadgeText: { fontSize: 12, fontWeight: '800' },
+  sectionHeaderTitle: { fontSize: 13, fontWeight: '700' },
+  sectionHeaderCount: { fontSize: 12, fontWeight: '500' },
+  sectionHeaderLine: { height: 1, width: '100%', opacity: 0.6 },
   listContent: { padding: 12, gap: 8, paddingBottom: 100 },
   docCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.white, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: C.gray200 },
   docIconWrap: { width: 40, height: 40, borderRadius: 10, backgroundColor: C.amber50, alignItems: 'center', justifyContent: 'center' },
