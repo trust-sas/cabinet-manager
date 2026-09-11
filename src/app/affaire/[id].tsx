@@ -27,9 +27,9 @@ import {
   AlertCircle, ArrowLeft, Calendar, Camera, CheckCircle2, ChevronLeft, ChevronRight, Clock,
   Download, ExternalLink, Eye, FileSpreadsheet, FileText, Globe,
   Image as ImageIcon, Lock, Paperclip, Pencil, Phone, Plus, RefreshCw, Scan, Share2,
-  ShieldAlert, Trash2, Upload, X, UserPlus, Send, Key, Mail,
+  ShieldAlert, Trash2, Upload, X, UserPlus, Send, Key, Mail, ArrowDownAZ, CalendarDays,
 } from 'lucide-react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text,
   TextInput, TouchableOpacity, View,
@@ -66,6 +66,60 @@ const fmtM   = (n: number) => new Intl.NumberFormat('fr-FR').format(Math.round(n
 const fmtD   = (d: string) => new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(d));
 const fmtDs  = (d: string) => new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(d));
 const fmtMon = (d: Date)   => new Intl.DateTimeFormat('fr-FR', { month: 'short' }).format(d);
+
+// ── Helpers de groupage pour tri documents (style Windows Explorer) ───────────
+type DateGroup = 'Aujourd\'hui' | 'Cette semaine' | 'Ce mois-ci' | 'Les 3 derniers mois' | 'Il y a longtemps';
+
+function getDateGroup(isoDate: string): DateGroup {
+  const now = new Date();
+  const date = new Date(isoDate);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const docDay    = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  const diffDays = Math.floor((todayStart.getTime() - docDay.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0)  return 'Aujourd\'hui';
+  if (diffDays <= 7)  return 'Cette semaine';
+  if (diffDays <= 30) return 'Ce mois-ci';
+  if (diffDays <= 90) return 'Les 3 derniers mois';
+  return 'Il y a longtemps';
+}
+
+const DATE_GROUP_ORDER: DateGroup[] = [
+  'Aujourd\'hui',
+  'Cette semaine',
+  'Ce mois-ci',
+  'Les 3 derniers mois',
+  'Il y a longtemps',
+];
+
+function groupDocsByDate<T>(items: T[], getDate: (item: T) => string): Array<{ title: string; data: T[] }> {
+  const sorted = [...items].sort((a, b) => new Date(getDate(b)).getTime() - new Date(getDate(a)).getTime());
+  const map = new Map<DateGroup, T[]>();
+  for (const item of sorted) {
+    const group = getDateGroup(getDate(item));
+    if (!map.has(group)) map.set(group, []);
+    map.get(group)!.push(item);
+  }
+  return DATE_GROUP_ORDER
+    .filter(g => map.has(g))
+    .map(g => ({ title: g, data: map.get(g)! }));
+}
+
+function groupDocsByAlpha<T>(items: T[], getName: (item: T) => string): Array<{ title: string; data: T[] }> {
+  const sorted = [...items].sort((a, b) => getName(a).localeCompare(getName(b), 'fr', { sensitivity: 'base' }));
+  const map = new Map<string, T[]>();
+  for (const item of sorted) {
+    const raw = getName(item).trim();
+    const firstChar = raw.length > 0 ? raw.charAt(0).toUpperCase() : '#';
+    const letter = /^[A-Z]$/.test(firstChar) ? firstChar : '#';
+    if (!map.has(letter)) map.set(letter, []);
+    map.get(letter)!.push(item);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'fr'))
+    .map(([title, data]) => ({ title, data }));
+}
 
 export default function AffaireDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -136,6 +190,15 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
   const { dossier, isLoading, error, refetch } = useDossier(dossierId);
   const { audiences, refetch: refetchAud, create: createAud } = useAudiences({ dossierId, lazy: false });
   const { documents, refetch: refetchDoc, create: createDoc, remove: removeDoc } = useDocuments({ dossierId, lazy: false });
+
+  const [docSortMode, setDocSortMode] = useState<'date' | 'alpha'>('date');
+
+  const docSections = useMemo(() => {
+    if (docSortMode === 'alpha') {
+      return groupDocsByAlpha(documents, d => d.nom);
+    }
+    return groupDocsByDate(documents, d => d.createdAt);
+  }, [documents, docSortMode]);
 
 
   const handleDeleteDocument = (doc: DocItem) => {
@@ -765,6 +828,36 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
               </TouchableOpacity>
             </View>
 
+            {/* Barre de Tri (Date vs A-Z) */}
+            {documents.length > 0 && (
+              <View style={s.docSortBar}>
+                <Text style={s.docSortLabel}>Trier par :</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <TouchableOpacity
+                    style={[s.docSortBtn, docSortMode === 'date' && s.docSortBtnActive]}
+                    onPress={() => setDocSortMode('date')}
+                    activeOpacity={0.8}
+                  >
+                    <CalendarDays size={13} color={docSortMode === 'date' ? C.gray900 : C.gray600} />
+                    <Text style={[s.docSortBtnText, docSortMode === 'date' && s.docSortBtnTextActive]}>
+                      Date
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[s.docSortBtn, docSortMode === 'alpha' && s.docSortBtnActive]}
+                    onPress={() => setDocSortMode('alpha')}
+                    activeOpacity={0.8}
+                  >
+                    <ArrowDownAZ size={13} color={docSortMode === 'alpha' ? C.gray900 : C.gray600} />
+                    <Text style={[s.docSortBtnText, docSortMode === 'alpha' && s.docSortBtnTextActive]}>
+                      A–Z
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {documents.length === 0 ? (
               <View style={s.empty}>
                 <FileText color={C.gray400} size={40} />
@@ -774,56 +867,83 @@ const AGENDA_CATEGORIES: { id: EventCategory; label: string; icon: string }[] = 
                   <Text style={s.addDocSubText}>Ajouter PDF, Word, Excel, Photo ou Scan</Text>
                 </TouchableOpacity>
               </View>
-            ) : documents.map(doc => {
-              const styleMeta = getDocTypeIconAndColor(doc.typeDocument, doc.nom);
-              const DocIcon = styleMeta.Icon;
-              const conf = CONF_CONFIG[doc.confidentialite];
-              const ConfIcon = conf?.Icon || Globe;
-              return (
-                <TouchableOpacity
-                  key={String(doc.id)}
-                  style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
-                  onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
-                  activeOpacity={0.85}
-                >
-                  <View style={[s.docIcon, { backgroundColor: styleMeta.bg }]}>
-                    <DocIcon color={styleMeta.text} size={22} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.docName} numberOfLines={1}>{doc.nom}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <View style={[s.typeBadge, { backgroundColor: styleMeta.bg }]}>
-                        <Text style={[s.typeText, { color: styleMeta.text }]}>{styleMeta.label}</Text>
-                      </View>
-                      {doc.tailleKo && <Text style={s.docMeta}>{doc.tailleKo} Ko</Text>}
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                      <Text style={s.docDate}>{fmtDs(doc.createdAt)}</Text>
-                      {conf && (
-                        <View style={[s.confBadgeInline, { backgroundColor: conf.bg }]}>
-                          <ConfIcon color={conf.text} size={10} />
-                          <Text style={[s.confTextInline, { color: conf.text }]}>{conf.label}</Text>
+            ) : (
+              docSections.map(sec => (
+                <View key={sec.title} style={{ marginBottom: 12 }}>
+                  {/* Section Header (Windows Explorer Style) */}
+                  <View style={s.docSectionHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {docSortMode === 'date' ? (
+                        <CalendarDays color={C.amber600} size={14} />
+                      ) : (
+                        <View style={s.docLetterBadge}>
+                          <Text style={s.docLetterText}>{sec.title}</Text>
                         </View>
                       )}
+                      <Text style={s.docSectionTitle}>
+                        {docSortMode === 'date' ? sec.title : `Lettre ${sec.title}`}
+                      </Text>
+                      <Text style={s.docSectionCount}>({sec.data.length})</Text>
                     </View>
+                    <View style={s.docSectionLine} />
                   </View>
-                  <View style={{ gap: 6 }}>
-                    <TouchableOpacity
-                      style={s.docActionBtn}
-                      onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
-                    >
-                      <Eye color={C.blue600} size={16} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={s.docActionBtn}
-                      onPress={() => checkSecretAccessAndExecute(doc, () => handleDownloadDoc(doc))}
-                    >
-                      <Download color={C.green600} size={16} />
-                    </TouchableOpacity>
+
+                  {/* Documents List in this Section */}
+                  <View style={{ gap: 8 }}>
+                    {sec.data.map(doc => {
+                      const styleMeta = getDocTypeIconAndColor(doc.typeDocument, doc.nom);
+                      const DocIcon = styleMeta.Icon;
+                      const conf = CONF_CONFIG[doc.confidentialite];
+                      const ConfIcon = conf?.Icon || Globe;
+                      return (
+                        <TouchableOpacity
+                          key={String(doc.id)}
+                          style={[s.card, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
+                          onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
+                          activeOpacity={0.85}
+                        >
+                          <View style={[s.docIcon, { backgroundColor: styleMeta.bg }]}>
+                            <DocIcon color={styleMeta.text} size={22} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.docName} numberOfLines={1}>{doc.nom}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                              <View style={[s.typeBadge, { backgroundColor: styleMeta.bg }]}>
+                                <Text style={[s.typeText, { color: styleMeta.text }]}>{styleMeta.label}</Text>
+                              </View>
+                              {doc.tailleKo && <Text style={s.docMeta}>{doc.tailleKo} Ko</Text>}
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                              <Text style={s.docDate}>{fmtDs(doc.createdAt)}</Text>
+                              {conf && (
+                                <View style={[s.confBadgeInline, { backgroundColor: conf.bg }]}>
+                                  <ConfIcon color={conf.text} size={10} />
+                                  <Text style={[s.confTextInline, { color: conf.text }]}>{conf.label}</Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                          <View style={{ gap: 6 }}>
+                            <TouchableOpacity
+                              style={s.docActionBtn}
+                              onPress={() => checkSecretAccessAndExecute(doc, () => handleOpenViewDoc(doc))}
+                            >
+                              <Eye color={C.blue600} size={16} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={s.docActionBtn}
+                              onPress={() => checkSecretAccessAndExecute(doc, () => handleDownloadDoc(doc))}
+                            >
+                              <Download color={C.green600} size={16} />
+                            </TouchableOpacity>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                </TouchableOpacity>
-              );
-            })}
+                </View>
+              ))
+            )}
           </>
         )}
 
@@ -1620,6 +1740,18 @@ const s = StyleSheet.create({
   audMeta:        { fontSize: 12, color: C.gray500, marginTop: 2 },
   noteBox:        { backgroundColor: C.amber50, borderRadius: 8, padding: 8, marginTop: 6 },
   noteText:       { fontSize: 12, color: C.amber800 },
+  docSortBar:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.white, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 6, borderWidth: 1, borderColor: C.gray200 },
+  docSortLabel:   { fontSize: 12, fontWeight: '600', color: C.gray600 },
+  docSortBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: C.gray100 },
+  docSortBtnActive: { backgroundColor: C.amber500 },
+  docSortBtnText: { fontSize: 11, fontWeight: '600', color: C.gray600 },
+  docSortBtnTextActive: { color: C.gray900, fontWeight: '800' },
+  docSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 8 },
+  docSectionTitle: { fontSize: 13, fontWeight: '700', color: C.gray800 },
+  docSectionCount: { fontSize: 12, fontWeight: '600', color: C.gray400 },
+  docSectionLine: { flex: 1, height: 1, backgroundColor: C.gray200, marginLeft: 10 },
+  docLetterBadge: { width: 22, height: 22, borderRadius: 6, backgroundColor: C.amber100, alignItems: 'center', justifyContent: 'center' },
+  docLetterText:  { fontSize: 12, fontWeight: '800', color: C.amber800 },
   docIcon:        { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   docName:        { fontSize: 14, fontWeight: '600', color: C.gray900 },
   docMeta:        { fontSize: 12, color: C.gray500 },

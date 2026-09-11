@@ -4,9 +4,9 @@
  * Design 2026 : Thème adaptatif (dark/light), Skeleton Loader, Modales adaptatives.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, SectionList,
   Modal, ScrollView, Linking, ActivityIndicator, RefreshControl, StatusBar, Alert,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
@@ -25,6 +25,24 @@ import { extractErrorMessage } from '@/lib/api';
 import { useTheme } from '@/hooks/useTheme';
 import { SkeletonList } from '@/components/ui/SkeletonLoader';
 import { useToast } from '@/components/ui/Toast';
+
+// ── Helper de groupage alphabétique des clients (A, B, C...) ─────────────────
+function groupClientsByAlpha(items: Client[]): Array<{ letter: string; data: Client[] }> {
+  const sorted = [...items].sort((a, b) =>
+    a.nomComplet.trim().localeCompare(b.nomComplet.trim(), 'fr', { sensitivity: 'base' })
+  );
+  const map = new Map<string, Client[]>();
+  for (const item of sorted) {
+    const raw = item.nomComplet.trim();
+    const firstChar = raw.length > 0 ? raw.charAt(0).toUpperCase() : '#';
+    const letter = /^[A-Z]$/.test(firstChar) ? firstChar : '#';
+    if (!map.has(letter)) map.set(letter, []);
+    map.get(letter)!.push(item);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'fr'))
+    .map(([letter, data]) => ({ letter, data }));
+}
 
 export default function ClientsScreen() {
   const router = useRouter();
@@ -47,6 +65,11 @@ export default function ClientsScreen() {
 
   const { dossiers } = useDossiers({ pageSize: 100 });
   const userClients = clients;
+
+  // Tri alphabétique & groupage par lettre
+  const sections = useMemo(() => {
+    return groupClientsByAlpha(userClients);
+  }, [userClients]);
 
   const initials = (c: Client) => {
     const parts = c.nomComplet.trim().split(' ');
@@ -159,12 +182,23 @@ export default function ClientsScreen() {
       {isLoading && userClients.length === 0 ? (
         <SkeletonList count={6} />
       ) : (
-        <FlatList
-          data={userClients}
+        <SectionList
+          sections={sections}
           keyExtractor={item => String(item.id)}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
           refreshControl={<RefreshControl refreshing={isLoading && userClients.length > 0} onRefresh={refetch} tintColor={C.amber500} />}
+          renderSectionHeader={({ section: { letter, data } }) => (
+            <View style={[s.sectionHeaderWrap, { backgroundColor: K.bg }]}>
+              <View style={[s.letterBadge, { backgroundColor: K.primaryLight }]}>
+                <Text style={[s.letterBadgeText, { color: K.primary }]}>{letter}</Text>
+              </View>
+              <Text style={[s.sectionHeaderText, { color: K.text }]}>Lettre {letter}</Text>
+              <Text style={[s.sectionHeaderCount, { color: K.textMuted }]}>({data.length})</Text>
+              <View style={[s.sectionHeaderLine, { backgroundColor: K.border }]} />
+            </View>
+          )}
           ListEmptyComponent={
             <View style={s.empty}>
               <Text style={[s.emptyText, { color: K.textMuted }]}>Aucun client trouvé dans la base de données</Text>
@@ -358,6 +392,18 @@ const s = StyleSheet.create({
   retryBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   retryText: { fontSize: 12, fontWeight: '600' },
   list: { padding: 14, paddingBottom: 100, gap: 10 },
+  sectionHeaderWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingTop: 14, paddingBottom: 6, paddingHorizontal: 4,
+  },
+  letterBadge: {
+    width: 24, height: 24, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  letterBadgeText: { fontSize: 13, fontWeight: '800' },
+  sectionHeaderText: { fontSize: 13, fontWeight: '700' },
+  sectionHeaderCount: { fontSize: 11, fontWeight: '600' },
+  sectionHeaderLine: { flex: 1, height: 1, marginLeft: 6, opacity: 0.5 },
   empty: { alignItems: 'center', paddingTop: 60 },
   emptyText: { fontSize: 14 },
   card: {

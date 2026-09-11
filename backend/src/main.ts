@@ -13,7 +13,9 @@
  * ---------------------------------------------------------------------------
  */
 import * as dotenv from 'dotenv';
-dotenv.config({ override: true }); // override: true force le rechargement même si la var existe déjà
+import * as path from 'path';
+// Charge le .env depuis le dossier backend/, peu importe le cwd d'où node est lancé
+dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
