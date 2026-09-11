@@ -12,13 +12,16 @@ import { extractErrorMessage } from '@/lib/api';
 import { useTheme } from '@/hooks/useTheme';
 import { SkeletonList } from '@/components/ui/SkeletonLoader';
 import { useRouter } from 'expo-router';
-import { AlertCircle, Briefcase, ChevronRight, Plus, Search, Trash2 } from 'lucide-react-native';
-import { useCallback, useState } from 'react';
+import { AlertCircle, Briefcase, ChevronRight, Pin, Plus, Search, Trash2 } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet,
+  ActivityIndicator, Alert, FlatList, RefreshControl, SectionList, StyleSheet,
   Text, TextInput, TouchableOpacity, View, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PINNED_DOSSIERS_KEY = '@cabinet_pinned_dossiers';
 
 const STATUT_MAP: Record<DossierStatut, { label: string; bg: string; text: string }> = {
   'Ouvert':    { label: 'Ouvert',    bg: 'rgba(59,130,246,0.15)',  text: '#3b82f6' },
@@ -46,6 +49,27 @@ export default function AffairesScreen() {
   const { colors, isDark } = useTheme();
   const [search, setSearch] = useState('');
   const [selectedStatut, setSelectedStatut] = useState<'all' | DossierStatut>('all');
+  const [pinnedIds, setPinnedIds] = useState<number[]>([]);
+
+  // Chargement des dossiers épinglés depuis le stockage local
+  useEffect(() => {
+    AsyncStorage.getItem(PINNED_DOSSIERS_KEY).then(val => {
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) setPinnedIds(parsed.map(Number));
+        } catch {}
+      }
+    });
+  }, []);
+
+  const togglePin = useCallback(async (id: number) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(p => p !== id) : [id, ...prev];
+      AsyncStorage.setItem(PINNED_DOSSIERS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const { dossiers, isLoading, isLoadingMore, error, refetch, loadMore } =
     useDossiers({
@@ -61,22 +85,57 @@ export default function AffairesScreen() {
       })
     : accessibleDossiers;
 
+  // Tri STRICTEMENT par ordre de création (le plus récent en premier)
+  const getCreationTime = (d: Dossier) => new Date(d.createdAt || d.dateOuverture).getTime();
+
+  const sortedFiltered = useMemo(() => {
+    return [...filtered].sort((a, b) => getCreationTime(b) - getCreationTime(a));
+  }, [filtered]);
+
+  // Groupage des dossiers épinglés et des autres dossiers
+  const sections = useMemo(() => {
+    const pinned = sortedFiltered.filter(d => pinnedIds.includes(Number(d.id)));
+    const others = sortedFiltered.filter(d => !pinnedIds.includes(Number(d.id)));
+
+    const list: Array<{ title: string; data: Dossier[]; isPinned: boolean }> = [];
+    if (pinned.length > 0) {
+      list.push({ title: 'Dossiers épinglés', data: pinned, isPinned: true });
+    }
+    if (others.length > 0 || pinned.length === 0) {
+      list.push({
+        title: pinned.length > 0 ? 'Autres affaires' : 'Toutes les affaires',
+        data: others,
+        isPinned: false,
+      });
+    }
+    return list;
+  }, [sortedFiltered, pinnedIds]);
+
   const handleStatutChange = useCallback((val: 'all' | DossierStatut) => {
     setSelectedStatut(val);
     setSearch('');
   }, []);
 
   const renderItem = useCallback(({ item: d }: { item: Dossier }) => {
+    const isPinned = pinnedIds.includes(Number(d.id));
     const stat = STATUT_MAP[d.statut] ?? { label: d.statut, bg: 'rgba(148,163,184,0.15)', text: colors.textMuted };
     return (
       <TouchableOpacity
-        style={[s.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        style={[
+          s.card,
+          { backgroundColor: colors.surface, borderColor: isPinned ? C.amber500 + '70' : colors.border },
+          isPinned && { backgroundColor: isDark ? 'rgba(245,158,11,0.06)' : 'rgba(254,243,199,0.3)' },
+        ]}
         onPress={() => router.push({ pathname: '/affaire/[id]', params: { id: d.id } })}
+        onLongPress={() => togglePin(Number(d.id))}
         activeOpacity={0.85}
       >
         <View style={s.cardMain}>
           <View style={s.cardTopRow}>
-            <Text style={[s.numAffaire, { color: colors.primary }]}>{d.numeroAffaire}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {isPinned && <Pin size={13} color={C.amber500} fill={C.amber500} />}
+              <Text style={[s.numAffaire, { color: colors.primary }]}>{d.numeroAffaire}</Text>
+            </View>
             <View style={[s.badge, { backgroundColor: stat.bg }]}>
               <Text style={[s.badgeText, { color: stat.text }]}>{stat.label}</Text>
             </View>
@@ -89,10 +148,19 @@ export default function AffairesScreen() {
             <Text style={[s.dateText, { color: colors.textMuted }]}>Ouvert le {fmt(d.dateOuverture)}</Text>
           </View>
         </View>
-        <ChevronRight color={colors.textMuted} size={18} style={s.arrow} />
+        <View style={{ alignItems: 'center', gap: 10, marginLeft: 8 }}>
+          <TouchableOpacity
+            style={[s.pinActionBtn, isPinned && s.pinActionBtnActive]}
+            onPress={() => togglePin(Number(d.id))}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Pin size={15} color={isPinned ? C.amber500 : colors.textMuted} fill={isPinned ? C.amber500 : 'transparent'} />
+          </TouchableOpacity>
+          <ChevronRight color={colors.textMuted} size={18} style={s.arrow} />
+        </View>
       </TouchableOpacity>
     );
-  }, [router, colors]);
+  }, [router, colors, pinnedIds, togglePin, isDark]);
 
   const K = colors;
 
@@ -178,13 +246,30 @@ export default function AffairesScreen() {
       ) : isLoading && dossiers.length === 0 ? (
         <SkeletonList count={5} />
       ) : (
-        <FlatList
-          data={filtered}
+        <SectionList
+          sections={sections}
           keyExtractor={item => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={s.listContent}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) => (
+            <View style={[s.sectionHeaderWrap, { backgroundColor: K.bg }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {section.isPinned ? (
+                  <Pin size={14} color={C.amber500} fill={C.amber500} />
+                ) : null}
+                <Text style={[s.sectionHeaderText, { color: section.isPinned ? C.amber500 : colors.textMuted }]}>
+                  {section.title.toUpperCase()}
+                </Text>
+                <Text style={[s.sectionHeaderCount, { color: colors.textMuted }]}>
+                  ({section.data.length})
+                </Text>
+              </View>
+              <View style={[s.sectionHeaderLine, { backgroundColor: colors.border }]} />
+            </View>
+          )}
           refreshControl={
             <RefreshControl
               refreshing={isLoading && dossiers.length > 0}
@@ -268,7 +353,22 @@ const s = StyleSheet.create({
   juridictionText: { fontSize: 12 },
   cardFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   dateText: { fontSize: 11 },
-  arrow: { marginLeft: 8 },
+  arrow: { marginLeft: 2 },
+  pinActionBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(148,163,184,0.1)',
+  },
+  pinActionBtnActive: {
+    backgroundColor: 'rgba(245,158,11,0.15)',
+  },
+  sectionHeaderWrap: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 12, paddingBottom: 6, paddingHorizontal: 4,
+  },
+  sectionHeaderText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  sectionHeaderCount: { fontSize: 11, fontWeight: '600' },
+  sectionHeaderLine: { flex: 1, height: 1, marginLeft: 10, opacity: 0.4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
   errorTitle: { fontSize: 16, fontWeight: '700', marginTop: 8 },
   errorSub: { fontSize: 13, textAlign: 'center' },
